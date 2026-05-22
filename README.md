@@ -380,6 +380,27 @@ Responses use the same JSON envelope as `--full-output --format json`:
 
 Async generator commands stream as NDJSON (`application/x-ndjson`). Middleware runs the same as in `serve()`.
 
+#### RPC
+
+The `fetch` handler also exposes `POST /_incur/rpc` for structured command calls. Use it when a client already has separated `args` and `options` objects and should not encode positional args into the URL path:
+
+```http
+POST /_incur/rpc
+content-type: application/json
+
+{
+  "command": "users",
+  "args": { "id": 42 },
+  "options": { "limit": 5 }
+}
+```
+
+The response uses the same JSON envelope as command API responses.
+
+Raw fetch gateways mounted with `command('api', { fetch })` are intentionally not supported by
+structured RPC because they accept arbitrary HTTP requests instead of a known command schema. Mount
+the gateway with an OpenAPI spec to generate typed operations, or call the HTTP route directly.
+
 #### MCP over HTTP
 
 The `fetch` handler automatically exposes an MCP endpoint at `/mcp`. Agents can discover and call your CLI's commands as MCP tools over HTTP — no stdio required:

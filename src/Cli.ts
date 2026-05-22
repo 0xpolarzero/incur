@@ -1523,6 +1523,8 @@ declare namespace fetchImpl {
     envSchema?: z.ZodObject<any> | undefined
     /** Group-level middleware collected during command resolution. */
     groupMiddlewares?: MiddlewareHandler[] | undefined
+    /** Structured args received from the RPC route. */
+    structuredArgs?: Record<string, unknown> | undefined
     mcpHandler?:
       | ((
           req: Request,
@@ -1657,6 +1659,14 @@ async function fetchImpl(
       vars: options.vars,
     })
 
+  if (
+    req.method === 'POST' &&
+    segments[0] === '_incur' &&
+    segments[1] === 'rpc' &&
+    segments.length === 2
+  )
+    return executeRpcCommand(commands, req, start, options)
+
   // .well-known/skills/ — Agent Skills Discovery (RFC)
   if (
     segments[0] === '.well-known' &&
@@ -1776,6 +1786,69 @@ async function fetchImpl(
   })
 }
 
+/** @internal Executes an RPC client request. */
+async function executeRpcCommand(
+  commands: Map<string, CommandEntry>,
+  req: Request,
+  start: number,
+  options: fetchImpl.Options,
+): Promise<Response> {
+  function jsonResponse(body: unknown, status: number) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+
+  function error(code: string, message: string, status: number, command = '/_incur/rpc') {
+    return jsonResponse(
+      {
+        ok: false,
+        error: { code, message },
+        meta: { command, duration: `${Math.round(performance.now() - start)}ms` },
+      },
+      status,
+    )
+  }
+
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return error('VALIDATION_ERROR', 'Request body must be JSON.', 400)
+  }
+
+  if (!isRecord(body)) return error('VALIDATION_ERROR', 'Request body must be an object.', 400)
+
+  if (typeof body.command !== 'string')
+    return error('VALIDATION_ERROR', '`command` must be a string.', 400)
+  const command = body.command.trim()
+  if (!command) return error('VALIDATION_ERROR', '`command` must be a non-empty string.', 400)
+
+  const args = body.args ?? {}
+  const rpcOptions = body.options ?? {}
+  if (!isRecord(args) || !isRecord(rpcOptions))
+    return error('VALIDATION_ERROR', '`args` and `options` must be objects.', 400)
+
+  const tokens = command.split(/\s+/)
+  const resolved = resolveCommand(commands, tokens)
+  if ('fetchGateway' in resolved)
+    return error(
+      'FETCH_GATEWAY_UNSUPPORTED',
+      'Raw fetch gateways cannot be called through structured RPC. Mount the gateway with an OpenAPI spec to generate typed commands, or call the HTTP route directly.',
+      400,
+      command,
+    )
+  if (!('command' in resolved) || resolved.rest.length > 0)
+    return error('COMMAND_NOT_FOUND', 'Command not found.', 404, command)
+
+  return executeCommand(resolved.path, resolved.command, [], rpcOptions, start, {
+    ...options,
+    groupMiddlewares: resolved.middlewares,
+    structuredArgs: args,
+  })
+}
+
 /** @internal Executes a resolved command for the fetch handler and returns a JSON Response. */
 async function executeCommand(
   path: string,
@@ -1804,10 +1877,11 @@ async function executeCommand(
     env: options.envSchema,
     format: 'json',
     formatExplicit: true,
+    inputArgs: options.structuredArgs,
     inputOptions,
     middlewares: allMiddleware,
     name: options.name ?? path,
-    parseMode: 'split',
+    parseMode: options.structuredArgs === undefined ? 'split' : 'structured',
     path,
     vars: options.vars,
     version: options.version,
@@ -1869,6 +1943,7 @@ async function executeCommand(
           ...(result.error.retryable !== undefined
             ? { retryable: result.error.retryable }
             : undefined),
+          ...(result.error.fieldErrors ? { fieldErrors: result.error.fieldErrors } : undefined),
         },
         meta: {
           command: path,

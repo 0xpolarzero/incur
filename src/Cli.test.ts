@@ -4069,12 +4069,21 @@ describe('Command.execute', () => {
       path: 'id',
       parseMode: 'flat' as const,
     },
+    {
+      name: 'structured',
+      command: { args: z.object({ id: z.string() }), run: () => ({ ok: true }) },
+      inputArgs: { id: 123 },
+      inputOptions: {},
+      path: 'id',
+      parseMode: 'structured' as const,
+    },
   ])('$name mode returns validation fieldErrors for invalid command input', async (c) => {
     const result = await Command.execute(c.command, {
       agent: true,
       argv: [],
       format: 'json',
       formatExplicit: false,
+      inputArgs: 'inputArgs' in c ? c.inputArgs : undefined,
       inputOptions: c.inputOptions,
       name: 'test',
       parseMode: c.parseMode,
@@ -4269,6 +4278,98 @@ describe('fetch', () => {
         "status": 200,
       }
     `)
+  })
+
+  test('POST /_incur/rpc executes command with structured args and options', async () => {
+    const cli = Cli.create('test')
+    cli.command('math/sum', {
+      args: z.object({ left: z.number() }),
+      options: z.object({ right: z.number() }),
+      run: (c) => ({ value: c.args.left + c.options.right }),
+    })
+
+    const req = new Request('http://localhost/_incur/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        command: 'math/sum',
+        args: { left: 1 },
+        options: { right: 2 },
+      }),
+    })
+
+    expect(await fetchJson(cli, req)).toMatchInlineSnapshot(`
+      {
+        "body": {
+          "data": {
+            "value": 3,
+          },
+          "meta": {
+            "command": "math/sum",
+            "duration": "<stripped>",
+          },
+          "ok": true,
+        },
+        "status": 200,
+      }
+    `)
+  })
+
+  test('POST /_incur/rpc rejects non-object args and options', async () => {
+    const cli = Cli.create('test').command('ping', { run: () => ({ ok: true }) })
+    const req = new Request('http://localhost/_incur/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: 'ping', args: [] }),
+    })
+
+    const { status, body } = await fetchJson(cli, req)
+    expect(status).toBe(400)
+    expect(body.error).toEqual({
+      code: 'VALIDATION_ERROR',
+      message: '`args` and `options` must be objects.',
+    })
+  })
+
+  test('POST /_incur/rpc rejects raw fetch gateways', async () => {
+    const cli = Cli.create('test').command('api', {
+      fetch: () => new Response(JSON.stringify({ ok: true })),
+    })
+    const req = new Request('http://localhost/_incur/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: 'api' }),
+    })
+
+    const { status, body } = await fetchJson(cli, req)
+    expect(status).toBe(400)
+    expect(body.error).toEqual({
+      code: 'FETCH_GATEWAY_UNSUPPORTED',
+      message:
+        'Raw fetch gateways cannot be called through structured RPC. Mount the gateway with an OpenAPI spec to generate typed commands, or call the HTTP route directly.',
+    })
+  })
+
+  test('POST /_incur/rpc returns validation field errors', async () => {
+    const cli = Cli.create('test').command('sum', {
+      args: z.object({ left: z.number() }),
+      run: (c) => ({ value: c.args.left }),
+    })
+    const req = new Request('http://localhost/_incur/rpc', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: 'sum', args: {} }),
+    })
+
+    const { status, body } = await fetchJson(cli, req)
+    expect(status).toBe(400)
+    expect(body.error.code).toBe('VALIDATION_ERROR')
+    expect(body.error.fieldErrors).toMatchObject([
+      {
+        missing: true,
+        path: 'left',
+      },
+    ])
   })
 
   test('trailing path segments → positional args', async () => {

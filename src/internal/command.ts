@@ -82,11 +82,15 @@ export async function execute(command: any, options: execute.Options): Promise<e
       const parsed = Parser.parse(argv, { args: command.args })
       args = parsed.args
       parsedOptions = command.options ? Parser.zodParse(command.options, inputOptions) : {}
-    } else {
+    } else if (parseMode === 'flat') {
       // MCP mode: all params come from inputOptions, split into args vs options
       const split = splitParams(inputOptions, command)
       args = command.args ? Parser.zodParse(command.args, split.args) : {}
       parsedOptions = command.options ? Parser.zodParse(command.options, split.options) : {}
+    } else {
+      // RPC mode: args and options are already separated by the client
+      args = command.args ? Parser.zodParse(command.args, options.inputArgs ?? {}) : {}
+      parsedOptions = command.options ? Parser.zodParse(command.options, inputOptions) : {}
     }
 
     // Parse env
@@ -285,6 +289,8 @@ export declare namespace execute {
     format: string
     /** Whether the format was explicitly requested. */
     formatExplicit: boolean
+    /** Raw parsed args for structured RPC input. */
+    inputArgs?: Record<string, unknown> | undefined
     /** Raw parsed options (from query params, JSON body, or MCP params). For CLI, pass `{}`. */
     inputOptions: Record<string, unknown>
     /** Middleware handlers (root + group + command, already collected). */
@@ -296,8 +302,9 @@ export declare namespace execute {
      * - `'argv'` (default): parse both args and options from argv tokens (CLI mode)
      * - `'split'`: args from argv, options from inputOptions (HTTP mode)
      * - `'flat'`: all params from inputOptions, split by schema shapes (MCP mode)
+     * - `'structured'`: args from inputArgs, options from inputOptions (RPC mode)
      */
-    parseMode?: 'argv' | 'split' | 'flat' | undefined
+    parseMode?: 'argv' | 'split' | 'flat' | 'structured' | undefined
     /** The resolved command path. */
     path: string
     /** Vars schema for middleware variables. */
