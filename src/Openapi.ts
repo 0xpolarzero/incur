@@ -26,6 +26,42 @@ export type Config = {
   mode?: Mode | undefined
 }
 
+/** Inferred command map for operation commands generated from a literal OpenAPI spec. */
+export type Commands<name extends string, spec extends OpenAPISource | undefined> =
+  spec extends OpenAPISpec
+    ? {
+        [path in keyof NonNullable<spec['paths']> & string as OperationCommandName<
+          name,
+          NonNullable<spec['paths']>[path]
+        >]: {
+          args: Record<string, unknown>
+          options: Record<string, unknown>
+          output: unknown
+        }
+      }
+    : {}
+
+type OperationCommandName<name extends string, item> = item extends object
+  ? {
+      [method in keyof item & string]: method extends OperationMethod
+        ? item[method] extends { operationId: infer id extends string }
+          ? `${name} ${id}`
+          : `${name} ${method} ${string}`
+        : never
+    }[keyof item & string]
+  : never
+
+type OperationMethod =
+  | 'delete'
+  | 'get'
+  | 'head'
+  | 'options'
+  | 'patch'
+  | 'post'
+  | 'put'
+  | 'query'
+  | 'trace'
+
 /** Options for generating an OpenAPI document from an incur CLI. */
 export type GenerateOptions = {
   /** API description. Defaults to the CLI description. */
@@ -96,6 +132,7 @@ type GeneratedCommand = {
   args?: z.ZodObject<any> | undefined
   description?: string | undefined
   options?: z.ZodObject<any> | undefined
+  output?: z.ZodType | undefined
   run: (context: any) => any
 }
 
@@ -360,6 +397,7 @@ export async function generateCommands(
     const bodySchema = op.requestBody?.content?.['application/json']?.schema
     const bodyProps = (bodySchema?.properties ?? {}) as Record<string, Record<string, unknown>>
     const bodyRequired = new Set((bodySchema?.required as string[]) ?? [])
+    const outputSchema = responseSchema(op.responses)
 
     // Build args Zod schema from path params
     let argsSchema: z.ZodObject<any> | undefined
@@ -393,6 +431,7 @@ export async function generateCommands(
       description: op.summary ?? op.description,
       args: argsSchema,
       options: optionsSchema,
+      ...(outputSchema ? { output: toZod(outputSchema) } : undefined),
       run: createHandler({
         basePath: options.basePath,
         fetch,
@@ -657,4 +696,16 @@ function coerceIfNeeded(schema: z.ZodType): z.ZodType {
   if (!coerced) return schema
   const desc = (schema as any).description ?? (inner as any).description
   return desc ? coerced.describe(desc) : coerced
+}
+
+function responseSchema(responses: Record<string, unknown> | undefined) {
+  if (!responses) return undefined
+  const entries = Object.entries(responses)
+  const preferred =
+    entries.find(([status]) => status === '200') ??
+    entries.find(([status]) => /^2\d\d$/.test(status))
+  const response = preferred?.[1] as
+    | { content?: Record<string, { schema?: Record<string, unknown> | undefined }> | undefined }
+    | undefined
+  return response?.content?.['application/json']?.schema
 }

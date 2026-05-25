@@ -75,17 +75,17 @@ export type Cli<
       env
     >
     /** Mounts a fetch handler as a command, optionally with OpenAPI spec for typed subcommands. */
-    <const name extends string>(
+    <const name extends string, const spec extends Openapi.OpenAPISource | undefined = undefined>(
       name: name,
       definition: {
         basePath?: string | undefined
         description?: string | undefined
         fetch: FetchSource
-        openapi?: Openapi.OpenAPISource | undefined
+        openapi?: spec | undefined
         openapiConfig?: Openapi.Config | undefined
         outputPolicy?: OutputPolicy | undefined
       },
-    ): Cli<commands, vars, env>
+    ): Cli<commands & Openapi.Commands<name, spec>, vars, env>
   }
   /** A short description of the CLI. */
   description?: string | undefined
