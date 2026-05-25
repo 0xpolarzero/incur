@@ -4387,6 +4387,7 @@ describe('fetch', () => {
         {
           "meta": {
             "command": "stream",
+            "duration": "0ms",
           },
           "ok": true,
           "type": "done",

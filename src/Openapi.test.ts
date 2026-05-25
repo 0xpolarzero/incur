@@ -139,6 +139,98 @@ describe('generateCommands', () => {
     const limitSchema = cmd.options!.shape.limit
     expect(limitSchema.description).toBe('Max results')
   })
+
+  test('merges path parameters, infers output, encodes path params, and supports fallback names', async () => {
+    const calls: string[] = []
+    const commands = Openapi.generateCommands(
+      {
+        paths: {
+          '/users/{id}/posts': {
+            parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+            get: {
+              parameters: [{ name: 'published', in: 'query', schema: { type: 'boolean' } }],
+              responses: {
+                '204': {
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: { ok: { type: 'boolean' } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      (req) => {
+        calls.push(new URL(req.url).pathname + new URL(req.url).search)
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { 'content-type': 'application/json' },
+        })
+      },
+    )
+    const command = commands.get('get users id posts')!
+    expect(command.output).toBeDefined()
+    await command.run({
+      args: { id: 'a/b' },
+      options: { published: true },
+      error: (value: unknown) => value,
+    })
+    expect(calls).toEqual(['/users/a%2Fb/posts?published=true'])
+  })
+
+  test('uses strict boolean string coercion for generated command params', async () => {
+    const commands = Openapi.generateCommands(
+      {
+        paths: {
+          '/users': {
+            query: {
+              operationId: 'queryUsers',
+              parameters: [{ name: 'active', in: 'query', schema: { type: 'boolean' } }],
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      app.fetch,
+    )
+    const schema = commands.get('queryUsers')!.options!
+    expect(schema.safeParse({ active: 'true' }).success).toBe(true)
+    expect(schema.safeParse({ active: 'false' }).success).toBe(true)
+    expect(schema.safeParse({ active: 'yes' }).success).toBe(false)
+  })
+
+  test('treats request body properties as optional when request body is optional', async () => {
+    const commands = Openapi.generateCommands(
+      {
+        paths: {
+          '/users': {
+            post: {
+              operationId: 'createOptionalUser',
+              requestBody: {
+                required: false,
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      required: ['name'],
+                      properties: { name: { type: 'string' } },
+                    },
+                  },
+                },
+              },
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      app.fetch,
+    )
+    expect(commands.get('createOptionalUser')!.options!.safeParse({}).success).toBe(true)
+  })
 })
 
 describe('cli integration', () => {

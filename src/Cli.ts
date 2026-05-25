@@ -12,6 +12,9 @@ import * as Fetch from './Fetch.js'
 import * as Filter from './Filter.js'
 import * as Formatter from './Formatter.js'
 import * as Help from './Help.js'
+import { DiscoveryError, discoverClientResource } from './internal/client-discovery.js'
+import { executeClientCommand } from './internal/client-runtime.js'
+import * as CommandTree from './internal/command-tree.js'
 import {
   builtinCommands,
   type CommandMeta,
@@ -75,16 +78,16 @@ export type Cli<
       env
     >
     /** Mounts a fetch handler as a command, optionally with OpenAPI spec for typed subcommands. */
-    <const name extends string>(
+    <const name extends string, const spec extends Openapi.OpenAPISpec | undefined = undefined>(
       name: name,
       definition: {
         basePath?: string | undefined
         description?: string | undefined
         fetch: FetchHandler
-        openapi?: Openapi.OpenAPISpec | undefined
+        openapi?: spec | undefined
         outputPolicy?: OutputPolicy | undefined
       },
-    ): Cli<commands, vars, env>
+    ): Cli<commands & Openapi.Commands<name, spec>, vars, env>
   }
   /** A short description of the CLI. */
   description?: string | undefined
@@ -221,20 +224,17 @@ export function create(
     command(nameOrCli: any, def?: any): any {
       if (typeof nameOrCli === 'string') {
         if (def && 'fetch' in def && typeof def.fetch === 'function') {
-          // OpenAPI + fetch → generate typed command group (async, resolved before serve)
+          // OpenAPI + fetch → generate typed command group immediately.
           if (def.openapi) {
-            pending.push(
-              Openapi.generateCommands(def.openapi, def.fetch, { basePath: def.basePath }).then(
-                (generated) => {
-                  commands.set(nameOrCli, {
-                    _group: true,
-                    description: def.description,
-                    commands: generated as Map<string, CommandEntry>,
-                    ...(def.outputPolicy ? { outputPolicy: def.outputPolicy } : undefined),
-                  } as InternalGroup)
-                },
-              ),
-            )
+            const generated = Openapi.generateCommands(def.openapi, def.fetch, {
+              basePath: def.basePath,
+            })
+            commands.set(nameOrCli, {
+              _group: true,
+              description: def.description,
+              commands: generated as Map<string, CommandEntry>,
+              ...(def.outputPolicy ? { outputPolicy: def.outputPolicy } : undefined),
+            } as InternalGroup)
             return cli
           }
           commands.set(nameOrCli, {
@@ -317,7 +317,9 @@ export function create(
   if (rootDef && def.aliases) toRootAliases.set(cli as unknown as Root, def.aliases)
   if (def.options) toRootOptions.set(cli, def.options)
   if (def.config !== undefined) toConfigEnabled.set(cli, true)
+  if (def.mcp) toMcpOptions.set(cli, def.mcp)
   if (def.outputPolicy) toOutputPolicy.set(cli, def.outputPolicy)
+  if (def.sync) toSyncOptions.set(cli, def.sync)
   toMiddlewares.set(cli, middlewares)
   toCommands.set(cli, commands)
   return cli
@@ -1636,6 +1638,110 @@ async function fetchImpl(
   const url = new URL(req.url)
   const segments = url.pathname.split('/').filter(Boolean)
 
+  if (segments[0] === '_incur') {
+    const ctx: CommandTree.RuntimeCliContext = {
+      commands: commands as Map<string, CommandTree.CommandEntry>,
+      ...(options.description ? { description: options.description } : undefined),
+      ...(options.envSchema ? { env: options.envSchema } : undefined),
+      middlewares: options.middlewares ?? [],
+      name,
+      ...(options.rootCommand ? { rootCommand: options.rootCommand as any } : undefined),
+      ...(options.vars ? { vars: options.vars } : undefined),
+      ...(options.version ? { version: options.version } : undefined),
+    }
+
+    if (segments[1] === 'rpc' && segments.length === 2 && req.method === 'POST') {
+      let body: unknown
+      try {
+        body = await req.json()
+      } catch {
+        const response = await executeClientCommand(ctx, {})
+        return new Response(JSON.stringify(response), {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      const response = await executeClientCommand(ctx, body)
+      if ('stream' in response) {
+        const records = response.records()
+        const encoder = new TextEncoder()
+        const stream = new ReadableStream({
+          async start(controller) {
+            try {
+              for await (const record of records)
+                controller.enqueue(encoder.encode(`${JSON.stringify(record)}\n`))
+            } finally {
+              controller.close()
+            }
+          },
+          async cancel() {
+            await records.return(undefined as any)
+          },
+        })
+        return new Response(stream, {
+          status: 200,
+          headers: { 'content-type': 'application/x-ndjson' },
+        })
+      }
+      return new Response(JSON.stringify(response), {
+        status: response.ok ? 200 : rpcStatus(response.error.code),
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+
+    if (req.method === 'GET') {
+      const resource = (() => {
+        if (segments[1] === 'llms') return 'llms'
+        if (segments[1] === 'llms-full') return 'llmsFull'
+        if (segments[1] === 'schema') return 'schema'
+        if (segments[1] === 'help') return 'help'
+        if (segments[1] === 'openapi') return 'openapi'
+        if (segments[1] === 'skills') return 'skillsIndex'
+        if (segments[1] === 'skill') return 'skill'
+        if (segments[1] === 'mcp' && segments[2] === 'tools') return 'mcpTools'
+        return undefined
+      })()
+      if (resource) {
+        try {
+          const discovery = await discoverClientResource(ctx, {
+            resource,
+            ...(url.searchParams.get('command')
+              ? { command: url.searchParams.get('command')! }
+              : undefined),
+            ...(url.searchParams.get('format')
+              ? { format: url.searchParams.get('format')! }
+              : undefined),
+            ...(url.searchParams.get('name') ? { name: url.searchParams.get('name')! } : undefined),
+          })
+          return new Response(
+            'body' in discovery ? discovery.body : JSON.stringify(discovery.data),
+            {
+              status: 200,
+              headers: { 'content-type': discovery.contentType },
+            },
+          )
+        } catch (error) {
+          const status = error instanceof DiscoveryError ? error.status : 500
+          const code = error instanceof DiscoveryError ? error.code : 'DISCOVERY_ERROR'
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              error: {
+                code,
+                message: error instanceof Error ? error.message : String(error),
+              },
+              meta: {
+                resource,
+                duration: `${Math.round(performance.now() - start)}ms`,
+              },
+            }),
+            { status, headers: { 'content-type': 'application/json' } },
+          )
+        }
+      }
+    }
+  }
+
   // OpenAPI discovery: route /openapi.json, /openapi.yml, /openapi.yaml, and /.well-known/openapi.json
   if (req.method === 'GET' && isOpenapiRoute(segments)) {
     const spec = generatedOpenapi(name, commands, options)
@@ -1776,6 +1882,13 @@ async function fetchImpl(
   })
 }
 
+function rpcStatus(code: string) {
+  if (code === 'COMMAND_NOT_FOUND') return 404
+  if (code === 'VALIDATION_ERROR' || code === 'INVALID_RPC_REQUEST') return 400
+  if (code === 'COMMAND_GROUP' || code === 'FETCH_GATEWAY') return 400
+  return 500
+}
+
 /** @internal Executes a resolved command for the fetch handler and returns a JSON Response. */
 async function executeCommand(
   path: string,
@@ -1817,21 +1930,77 @@ async function executeCommand(
 
   // Streaming path — async generator → NDJSON response
   if ('stream' in result) {
+    const iterator = result.stream
     const stream = new ReadableStream({
+      async cancel() {
+        await iterator.return(undefined)
+      },
       async start(controller) {
         const encoder = new TextEncoder()
         try {
-          for await (const value of result.stream) {
+          let returnValue: unknown
+          while (true) {
+            const { value, done } = await iterator.next()
+            if (done) {
+              returnValue = value
+              break
+            }
+            if (isSentinel(value) && value[sentinel] === 'error') {
+              const err = value as ErrorResult
+              controller.enqueue(
+                encoder.encode(
+                  JSON.stringify({
+                    type: 'error',
+                    ok: false,
+                    error: {
+                      code: err.code,
+                      message: err.message,
+                      ...(err.retryable !== undefined ? { retryable: err.retryable } : undefined),
+                    },
+                    meta: { command: path, duration: `${Math.round(performance.now() - start)}ms` },
+                  }) + '\n',
+                ),
+              )
+              controller.close()
+              return
+            }
             controller.enqueue(
               encoder.encode(JSON.stringify({ type: 'chunk', data: value }) + '\n'),
             )
           }
+          if (isSentinel(returnValue) && returnValue[sentinel] === 'error') {
+            const err = returnValue as ErrorResult
+            controller.enqueue(
+              encoder.encode(
+                JSON.stringify({
+                  type: 'error',
+                  ok: false,
+                  error: {
+                    code: err.code,
+                    message: err.message,
+                    ...(err.retryable !== undefined ? { retryable: err.retryable } : undefined),
+                  },
+                  meta: { command: path, duration: `${Math.round(performance.now() - start)}ms` },
+                }) + '\n',
+              ),
+            )
+            controller.close()
+            return
+          }
+          const cta =
+            isSentinel(returnValue) && returnValue[sentinel] === 'ok'
+              ? formatCtaBlock(options.name ?? path, (returnValue as OkResult).cta)
+              : undefined
           controller.enqueue(
             encoder.encode(
               JSON.stringify({
                 type: 'done',
                 ok: true,
-                meta: { command: path },
+                meta: {
+                  command: path,
+                  duration: `${Math.round(performance.now() - start)}ms`,
+                  ...(cta ? { cta } : undefined),
+                },
               }) + '\n',
             ),
           )
@@ -1845,6 +2014,7 @@ async function executeCommand(
                   code: 'UNKNOWN',
                   message: error instanceof Error ? error.message : String(error),
                 },
+                meta: { command: path, duration: `${Math.round(performance.now() - start)}ms` },
               }) + '\n',
             ),
           )
@@ -2475,7 +2645,7 @@ function resolveAlias(
 export const toCommands = new WeakMap<Cli, Map<string, CommandEntry>>()
 
 /** @internal Maps CLI instances to their middleware arrays. */
-const toMiddlewares = new WeakMap<Cli, MiddlewareHandler[]>()
+export const toMiddlewares = new WeakMap<Cli, MiddlewareHandler[]>()
 
 /** @internal Maps root CLI instances to their command definitions. */
 export const toRootDefinition = new WeakMap<Root, CommandDefinition<any, any, any>>()
@@ -2487,7 +2657,24 @@ export const toRootOptions = new WeakMap<Cli, z.ZodObject<any>>()
 export const toConfigEnabled = new WeakMap<Cli, boolean>()
 
 /** @internal Maps CLI instances to their output policy. */
-const toOutputPolicy = new WeakMap<Cli, OutputPolicy>()
+export const toOutputPolicy = new WeakMap<Cli, OutputPolicy>()
+
+/** @internal Maps CLI instances to MCP setup options. */
+export const toMcpOptions = new WeakMap<
+  Cli,
+  { agents?: string[] | undefined; command?: string | undefined }
+>()
+
+/** @internal Maps CLI instances to skill sync options. */
+export const toSyncOptions = new WeakMap<
+  Cli,
+  {
+    cwd?: string | undefined
+    depth?: number | undefined
+    include?: string[] | undefined
+    suggestions?: string[] | undefined
+  }
+>()
 
 /** @internal Maps root CLI instances to their command aliases. */
 const toRootAliases = new WeakMap<Root, string[]>()

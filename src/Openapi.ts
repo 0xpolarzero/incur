@@ -14,6 +14,40 @@ import * as Schema from './Schema.js'
 /** A minimal OpenAPI 3.x spec shape. Accepts both hand-written specs and generated ones (e.g. from `@hono/zod-openapi`). */
 export type OpenAPISpec = { paths?: {} | undefined }
 
+/** Inferred command map for operation commands generated from a literal OpenAPI spec. */
+export type Commands<name extends string, spec extends OpenAPISpec | undefined> = spec extends {
+  paths: infer paths
+}
+  ? {
+      [path in keyof paths & string as OperationCommandName<name, paths[path]>]: {
+        args: Record<string, unknown>
+        options: Record<string, unknown>
+        output: unknown
+      }
+    }
+  : {}
+
+type OperationCommandName<name extends string, item> = item extends object
+  ? {
+      [method in keyof item & string]: method extends OperationMethod
+        ? item[method] extends { operationId: infer id extends string }
+          ? `${name} ${id}`
+          : `${name} ${method} ${string}`
+        : never
+    }[keyof item & string]
+  : never
+
+type OperationMethod =
+  | 'delete'
+  | 'get'
+  | 'head'
+  | 'options'
+  | 'patch'
+  | 'post'
+  | 'put'
+  | 'query'
+  | 'trace'
+
 /** Options for generating an OpenAPI document from an incur CLI. */
 export type GenerateOptions = {
   /** API description. Defaults to the CLI description. */
@@ -84,6 +118,7 @@ type GeneratedCommand = {
   args?: z.ZodObject<any> | undefined
   description?: string | undefined
   options?: z.ZodObject<any> | undefined
+  output?: z.ZodType | undefined
   run: (context: any) => any
 }
 
@@ -266,28 +301,32 @@ function encodePathSegment(segment: string) {
 }
 
 /** Generates incur command entries from an OpenAPI spec. Resolves all `$ref` pointers. */
-export async function generateCommands(
+export function generateCommands(
   spec: OpenAPISpec,
   fetch: FetchHandler,
   options: { basePath?: string | undefined } = {},
-): Promise<Map<string, GeneratedCommand>> {
+): Map<string, GeneratedCommand> {
   const resolved = dereference(structuredClone(spec)) as OpenAPISpec
   const commands = new Map<string, GeneratedCommand>()
-  const paths = (resolved.paths ?? {}) as Record<string, Record<string, unknown>>
+  const paths = (resolved.paths ?? {}) as Record<string, PathItem>
 
-  for (const [path, methods] of Object.entries(paths)) {
-    for (const [method, operation] of Object.entries(methods)) {
-      if (method.startsWith('x-')) continue
+  for (const [path, item] of Object.entries(paths)) {
+    const pathParameters = item.parameters ?? []
+    for (const [method, operation] of Object.entries(item)) {
+      if (!isOperationMethod(method)) continue
       const op = operation as Operation
-      const name = op.operationId ?? `${method}_${path.replace(/[/{}]/g, '_')}`
+      const name = op.operationId ?? fallbackName(method, path)
       const httpMethod = method.toUpperCase()
 
-      const pathParams = (op.parameters ?? []).filter((p) => p.in === 'path')
-      const queryParams = (op.parameters ?? []).filter((p) => p.in === 'query')
+      const parameters = mergeParameters(pathParameters, op.parameters ?? [])
+      const pathParams = parameters.filter((p) => p.in === 'path')
+      const queryParams = parameters.filter((p) => p.in === 'query')
 
       const bodySchema = op.requestBody?.content?.['application/json']?.schema
       const bodyProps = (bodySchema?.properties ?? {}) as Record<string, Record<string, unknown>>
       const bodyRequired = new Set((bodySchema?.required as string[]) ?? [])
+      const requestBodyRequired = op.requestBody?.required === true
+      const outputSchema = responseSchema(op.responses)
 
       // Build args Zod schema from path params
       let argsSchema: z.ZodObject<any> | undefined
@@ -312,7 +351,7 @@ export async function generateCommands(
       }
       for (const [key, schema] of Object.entries(bodyProps)) {
         let zodType = toZod(schema)
-        if (!bodyRequired.has(key)) zodType = zodType.optional()
+        if (!requestBodyRequired || !bodyRequired.has(key)) zodType = zodType.optional()
         optShape[key] = zodType
       }
       const optionsSchema = Object.keys(optShape).length > 0 ? z.object(optShape) : undefined
@@ -321,6 +360,7 @@ export async function generateCommands(
         description: op.summary ?? op.description,
         args: argsSchema,
         options: optionsSchema,
+        ...(outputSchema ? { output: toZod(outputSchema) } : undefined),
         run: createHandler({
           basePath: options.basePath,
           fetch,
@@ -353,7 +393,8 @@ function createHandler(config: {
     let urlPath = (config.basePath ?? '') + config.path
     for (const p of config.pathParams) {
       const value = args[p.name]
-      if (value !== undefined) urlPath = urlPath.replace(`{${p.name}}`, String(value))
+      if (value !== undefined)
+        urlPath = urlPath.replace(`{${p.name}}`, encodeURIComponent(String(value)))
     }
 
     // Build query string from query params
@@ -417,14 +458,14 @@ function coerceIfNeeded(schema: z.ZodType): z.ZodType {
       return isOptional ? z.coerce.number().optional() : z.coerce.number()
     // Direct boolean
     if (inner instanceof z.ZodBoolean)
-      return isOptional ? z.coerce.boolean().optional() : z.coerce.boolean()
+      return isOptional ? strictBoolean().optional() : strictBoolean()
     // Union containing number or boolean (e.g. type: ["number", "null"] from OpenAPI 3.1)
     if (inner instanceof z.ZodUnion) {
       const options = (inner as any)._zod?.def?.options as z.ZodType[] | undefined
       if (options?.some((o: z.ZodType) => o instanceof z.ZodNumber))
         return isOptional ? z.coerce.number().optional() : z.coerce.number()
       if (options?.some((o: z.ZodType) => o instanceof z.ZodBoolean))
-        return isOptional ? z.coerce.boolean().optional() : z.coerce.boolean()
+        return isOptional ? strictBoolean().optional() : strictBoolean()
     }
     // No coercion needed
     return undefined
@@ -433,4 +474,64 @@ function coerceIfNeeded(schema: z.ZodType): z.ZodType {
   if (!coerced) return schema
   const desc = (schema as any).description ?? (inner as any).description
   return desc ? coerced.describe(desc) : coerced
+}
+
+type PathItem = {
+  parameters?: Parameter[] | undefined
+  [key: string]: unknown
+}
+
+const operationMethods = new Set([
+  'get',
+  'put',
+  'post',
+  'delete',
+  'options',
+  'head',
+  'patch',
+  'trace',
+  'query',
+])
+
+function isOperationMethod(method: string) {
+  return operationMethods.has(method)
+}
+
+function mergeParameters(
+  pathParameters: readonly Parameter[],
+  operationParameters: readonly Parameter[],
+) {
+  const merged = new Map<string, Parameter>()
+  for (const parameter of pathParameters) merged.set(`${parameter.in}:${parameter.name}`, parameter)
+  for (const parameter of operationParameters)
+    merged.set(`${parameter.in}:${parameter.name}`, parameter)
+  return [...merged.values()]
+}
+
+function responseSchema(responses: Record<string, unknown> | undefined) {
+  if (!responses) return undefined
+  const entries = Object.entries(responses)
+  const preferred =
+    entries.find(([status]) => status === '200') ??
+    entries.find(([status]) => /^2\d\d$/.test(status))
+  const response = preferred?.[1] as
+    | { content?: Record<string, { schema?: Record<string, unknown> | undefined }> | undefined }
+    | undefined
+  return response?.content?.['application/json']?.schema
+}
+
+function fallbackName(method: string, path: string) {
+  const words = path
+    .split('/')
+    .filter(Boolean)
+    .map((part) => part.replace(/[{}]/g, ''))
+  return [method, ...words].join(' ')
+}
+
+function strictBoolean() {
+  return z.preprocess((value) => {
+    if (value === 'true') return true
+    if (value === 'false') return false
+    return value
+  }, z.boolean())
 }
