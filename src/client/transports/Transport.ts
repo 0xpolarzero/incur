@@ -2,7 +2,7 @@
 export type TransportType = 'http' | 'memory'
 
 /** Transport configuration. */
-export type TransportConfig<type extends TransportType> = {
+export type Config<type extends TransportType> = {
   /** Stable transport key. */
   key: string
   /** Human-readable transport name. */
@@ -12,10 +12,9 @@ export type TransportConfig<type extends TransportType> = {
 }
 
 /** Transport capabilities exposed by a resolved transport. */
-export type TransportCapabilities = Record<string, unknown>
+export type Capabilities = Record<string, unknown>
 
 /** Transport factory. */
-export type TransportFactory<
-  type extends TransportType,
-  capabilities extends TransportCapabilities,
-> = () => { config: TransportConfig<type> } & capabilities
+export type Factory<type extends TransportType, capabilities extends Capabilities> = () => {
+  config: Config<type>
+} & capabilities

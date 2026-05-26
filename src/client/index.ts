@@ -1,6 +1,4 @@
-export { ClientError } from './errors.js'
-export { httpTransport } from './transports/http.js'
-export { memoryTransport } from './transports/memory.js'
+export { ClientError } from './ClientError.js'
 export type { DiscoveryRequest, DiscoveryResponse } from '../internal/client-discovery.js'
 export type {
   RpcFullEnvelope as ClientRpcEnvelope,
@@ -10,6 +8,6 @@ export type {
   RpcStreamRecord,
   RpcStreamResponse,
 } from '../internal/client-runtime.js'
-export type { HttpTransport, HttpTransportOptions } from './transports/http.js'
-export type { MemoryTransport, MemoryTransportOptions } from './transports/memory.js'
-export type { TransportFactory } from './transports/createTransport.js'
+export * as HttpTransport from './transports/HttpTransport.js'
+export * as MemoryTransport from './transports/MemoryTransport.js'
+export * as Transport from './transports/Transport.js'

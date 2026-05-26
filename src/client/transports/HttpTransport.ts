@@ -5,11 +5,11 @@ import type {
   RpcStreamRecord,
   RpcStreamResponse,
 } from '../../internal/client-runtime.js'
-import { ClientError } from '../errors.js'
-import type { TransportFactory } from './createTransport.js'
+import { ClientError } from '../ClientError.js'
+import type * as Transport from './Transport.js'
 
 /** HTTP transport factory. */
-export type HttpTransport = TransportFactory<
+export type HttpTransport = Transport.Factory<
   'http',
   {
     baseUrl: URL
@@ -19,7 +19,7 @@ export type HttpTransport = TransportFactory<
 >
 
 /** HTTP transport options. */
-export type HttpTransportOptions = {
+export type Options = {
   /** Base URL for the served CLI. */
   baseUrl: string | URL
   /** Fetch implementation. Defaults to globalThis.fetch. */
@@ -29,7 +29,7 @@ export type HttpTransportOptions = {
 }
 
 /** Creates an HTTP transport. */
-export function httpTransport(options: HttpTransportOptions): HttpTransport {
+export function create(options: Options): HttpTransport {
   const fetcher = options.fetch ?? globalThis.fetch
   if (!fetcher) throw new ClientError('No fetch implementation is available.')
   const baseUrl = new URL(options.baseUrl)

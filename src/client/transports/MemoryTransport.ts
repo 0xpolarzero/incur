@@ -12,10 +12,10 @@ import {
   type RpcStreamResponse,
 } from '../../internal/client-runtime.js'
 import * as CommandTree from '../../internal/command-tree.js'
-import type { TransportFactory } from './createTransport.js'
+import type * as Transport from './Transport.js'
 
 /** Memory transport factory. */
-export type MemoryTransport = TransportFactory<
+export type MemoryTransport = Transport.Factory<
   'memory',
   {
     request(request: RpcRequest): Promise<RpcResponse | RpcStreamResponse>
@@ -25,16 +25,13 @@ export type MemoryTransport = TransportFactory<
 >
 
 /** Memory transport options. */
-export type MemoryTransportOptions = {
+export type Options = {
   /** Explicit environment source. */
   env?: Record<string, string | undefined> | undefined
 }
 
 /** Creates an in-process memory transport. */
-export function memoryTransport(
-  cli: Cli.Cli<any, any, any>,
-  options: MemoryTransportOptions = {},
-): MemoryTransport {
+export function create(cli: Cli.Cli<any, any, any>, options: Options = {}): MemoryTransport {
   return () => {
     const ctx = CommandTree.fromCli(cli)
     return {

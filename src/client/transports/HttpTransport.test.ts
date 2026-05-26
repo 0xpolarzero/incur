@@ -1,10 +1,10 @@
 import { describe, expect, test, vi } from 'vitest'
 
-import { ClientError } from '../errors.js'
-import { httpTransport } from './http.js'
+import { ClientError } from '../ClientError.js'
+import * as HttpTransport from './HttpTransport.js'
 
 function resolve(fetch: typeof globalThis.fetch) {
-  return httpTransport({ baseUrl: 'https://example.com/api/', fetch })()
+  return HttpTransport.create({ baseUrl: 'https://example.com/api/', fetch })()
 }
 
 function ndjson(lines: string[], options: { cancel?: () => void } = {}) {
@@ -21,7 +21,7 @@ function ndjson(lines: string[], options: { cancel?: () => void } = {}) {
   })
 }
 
-describe('httpTransport', () => {
+describe('HttpTransport', () => {
   test('normalizes base URL, serializes omitted args/options, and merges headers', async () => {
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('https://example.com/api/_incur/rpc')
@@ -38,7 +38,7 @@ describe('httpTransport', () => {
         },
       )
     }) as typeof globalThis.fetch
-    const transport = httpTransport({
+    const transport = HttpTransport.create({
       baseUrl: 'https://example.com/api',
       fetch,
       headers: { 'x-custom': 'yes' },
