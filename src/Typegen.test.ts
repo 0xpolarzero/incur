@@ -352,6 +352,18 @@ describe('fromCli', () => {
     expect(output).toContain('counts: Partial<Record<"open" | "closed", number>>')
   })
 
+  test('mixed finite and open key records render open keys', () => {
+    const cli = Cli.create('test').command('create', {
+      options: z.object({
+        counts: z.partialRecord(z.union([z.literal('open'), z.string()]), z.number()),
+      }),
+      run: () => ({}),
+    })
+
+    const output = Typegen.fromCli(cli)
+    expect(output).toContain('counts: Record<"open" | string, number>')
+  })
+
   test('required enum records render required keys', () => {
     const cli = Cli.create('test').command('create', {
       options: z.object({

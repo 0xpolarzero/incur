@@ -164,10 +164,8 @@ function finitePropertyNames(schema: Record<string, unknown>): unknown[] | undef
   if ('const' in schema) return [schema.const]
   if (schema.enum) return schema.enum as unknown[]
   if (schema.anyOf) {
-    const keys = (schema.anyOf as Record<string, unknown>[]).flatMap(
-      (schema) => finitePropertyNames(schema) ?? [],
-    )
-    if (keys.length > 0) return keys
+    const keys = (schema.anyOf as Record<string, unknown>[]).map(finitePropertyNames)
+    if (keys.every((key) => key)) return keys.flatMap((key) => key)
   }
   return undefined
 }
