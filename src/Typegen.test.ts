@@ -299,6 +299,8 @@ describe('fromCli', () => {
     })
 
     const output = Typegen.fromCli(cli)
+    // TypeScript cannot express "only unknown extra keys" with a plain index signature.
+    // Widening keeps declared properties assignable while still preserving an indexable shape.
     expect(output).toContain('flags: { required: boolean } & Record<string, string | boolean>')
   })
 
@@ -326,10 +328,58 @@ describe('fromCli', () => {
     expect(output).toContain('counts: Partial<Record<"open" | "closed", number>>')
   })
 
+  test('partial literal records render optional keys', () => {
+    const cli = Cli.create('test').command('create', {
+      options: z.object({
+        counts: z.partialRecord(z.literal('open'), z.number()),
+      }),
+      run: () => ({}),
+    })
+
+    const output = Typegen.fromCli(cli)
+    expect(output).toContain('counts: Partial<Record<"open", number>>')
+  })
+
+  test('partial union records render optional keys', () => {
+    const cli = Cli.create('test').command('create', {
+      options: z.object({
+        counts: z.partialRecord(z.union([z.literal('open'), z.literal('closed')]), z.number()),
+      }),
+      run: () => ({}),
+    })
+
+    const output = Typegen.fromCli(cli)
+    expect(output).toContain('counts: Partial<Record<"open" | "closed", number>>')
+  })
+
   test('required enum records render required keys', () => {
     const cli = Cli.create('test').command('create', {
       options: z.object({
         counts: z.record(z.enum(['open', 'closed']), z.number()),
+      }),
+      run: () => ({}),
+    })
+
+    const output = Typegen.fromCli(cli)
+    expect(output).toContain('counts: Record<"open" | "closed", number>')
+  })
+
+  test('required literal records render required keys', () => {
+    const cli = Cli.create('test').command('create', {
+      options: z.object({
+        counts: z.record(z.literal('open'), z.number()),
+      }),
+      run: () => ({}),
+    })
+
+    const output = Typegen.fromCli(cli)
+    expect(output).toContain('counts: Record<"open", number>')
+  })
+
+  test('required union records render required keys', () => {
+    const cli = Cli.create('test').command('create', {
+      options: z.object({
+        counts: z.record(z.union([z.literal('open'), z.literal('closed')]), z.number()),
       }),
       run: () => ({}),
     })

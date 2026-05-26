@@ -153,11 +153,23 @@ function recordToType(
   required: Set<string>,
 ): string {
   const record = `Record<${key}, ${value}>`
-  if (!propertyNames?.enum) return record
+  const keys = propertyNames ? finitePropertyNames(propertyNames) : undefined
+  if (!keys) return record
 
-  const keys = propertyNames.enum as unknown[]
   if (keys.every((key) => typeof key === 'string' && required.has(key))) return record
   return `Partial<${record}>`
+}
+
+function finitePropertyNames(schema: Record<string, unknown>): unknown[] | undefined {
+  if ('const' in schema) return [schema.const]
+  if (schema.enum) return schema.enum as unknown[]
+  if (schema.anyOf) {
+    const keys = (schema.anyOf as Record<string, unknown>[]).flatMap(
+      (schema) => finitePropertyNames(schema) ?? [],
+    )
+    if (keys.length > 0) return keys
+  }
+  return undefined
 }
 
 function propertyValueToType(
@@ -180,11 +192,16 @@ function unionTypes(types: string[]): string {
 function splitUnionType(type: string): string[] {
   const parts: string[] = []
   let depth = 0
+  let quote = ''
   let start = 0
 
   for (let i = 0; i < type.length; i++) {
     const char = type[i]
-    if (char === '(' || char === '[' || char === '{' || char === '<') depth++
+    if (quote) {
+      if (char === '\\') i++
+      else if (char === quote) quote = ''
+    } else if (char === '"' || char === "'") quote = char
+    else if (char === '(' || char === '[' || char === '{' || char === '<') depth++
     else if (char === ')' || char === ']' || char === '}' || char === '>') depth--
     else if (depth === 0 && type.slice(i, i + 3) === ' | ') {
       parts.push(type.slice(start, i))
