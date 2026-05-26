@@ -116,7 +116,7 @@ function objectToType(
   defs: Record<string, Record<string, unknown>>,
 ): string {
   const properties = schema.properties as Record<string, Record<string, unknown>> | undefined
-  const required = new Set((schema.required as string[] | undefined) ?? [])
+  const required = new Set((schema.required as unknown[] | undefined) ?? [])
   const entries = Object.entries(properties ?? {}).map(([key, value]) =>
     propertyToType(key, value, required, defs),
   )
@@ -150,13 +150,13 @@ function recordToType(
   key: string,
   value: string,
   propertyNames: Record<string, unknown> | undefined,
-  required: Set<string>,
+  required: Set<unknown>,
 ): string {
   const record = `Record<${key}, ${value}>`
   const keys = propertyNames ? finitePropertyNames(propertyNames) : undefined
   if (!keys) return record
 
-  if (keys.every((key) => typeof key === 'string' && required.has(key))) return record
+  if (keys.every((key) => required.has(key))) return record
   return `Partial<${record}>`
 }
 
@@ -173,7 +173,7 @@ function finitePropertyNames(schema: Record<string, unknown>): unknown[] | undef
 function propertyValueToType(
   key: string,
   schema: Record<string, unknown>,
-  required: Set<string>,
+  required: Set<unknown>,
   defs: Record<string, Record<string, unknown>>,
 ): string {
   const type = resolveType(schema, defs)
@@ -215,7 +215,7 @@ function splitUnionType(type: string): string[] {
 function propertyToType(
   key: string,
   schema: Record<string, unknown>,
-  required: Set<string>,
+  required: Set<unknown>,
   defs: Record<string, Record<string, unknown>>,
 ): string {
   const type = resolveType(schema, defs)

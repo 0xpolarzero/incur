@@ -340,6 +340,18 @@ describe('fromCli', () => {
     expect(output).toContain('counts: Partial<Record<"open", number>>')
   })
 
+  test('partial numeric literal records render optional keys', () => {
+    const cli = Cli.create('test').command('create', {
+      options: z.object({
+        counts: z.partialRecord(z.literal(1), z.number()),
+      }),
+      run: () => ({}),
+    })
+
+    const output = Typegen.fromCli(cli)
+    expect(output).toContain('counts: Partial<Record<1, number>>')
+  })
+
   test('partial union records render optional keys', () => {
     const cli = Cli.create('test').command('create', {
       options: z.object({
@@ -388,6 +400,18 @@ describe('fromCli', () => {
     expect(output).toContain('counts: Record<"open", number>')
   })
 
+  test('required numeric literal records render required keys', () => {
+    const cli = Cli.create('test').command('create', {
+      options: z.object({
+        counts: z.record(z.literal(1), z.number()),
+      }),
+      run: () => ({}),
+    })
+
+    const output = Typegen.fromCli(cli)
+    expect(output).toContain('counts: Record<1, number>')
+  })
+
   test('required union records render required keys', () => {
     const cli = Cli.create('test').command('create', {
       options: z.object({
@@ -398,6 +422,18 @@ describe('fromCli', () => {
 
     const output = Typegen.fromCli(cli)
     expect(output).toContain('counts: Record<"open" | "closed", number>')
+  })
+
+  test('required numeric union records render required keys', () => {
+    const cli = Cli.create('test').command('create', {
+      options: z.object({
+        counts: z.record(z.union([z.literal(1), z.literal(2)]), z.number()),
+      }),
+      run: () => ({}),
+    })
+
+    const output = Typegen.fromCli(cli)
+    expect(output).toContain('counts: Record<1 | 2, number>')
   })
 
   test('record with unknown property names falls back to string keys', () => {
