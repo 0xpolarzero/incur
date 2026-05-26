@@ -207,6 +207,66 @@ describe('complete', () => {
     expect(candidates).toEqual([])
   })
 
+  test('does not run transformed boolean schemas when completing flags', () => {
+    let calls = 0
+    const flag = z
+      .union([
+        z.boolean(),
+        z.enum(['true', 'false']).transform((value) => {
+          calls++
+          return value === 'true'
+        }),
+      ])
+      .pipe(z.boolean())
+    const candidates = Completions.complete(
+      new Map([['status', { description: 'Status' }]]),
+      { options: z.object({ flag: flag.optional() }) },
+      ['mycli', '--flag', ''],
+      2,
+    )
+
+    expect(candidates.map((c) => c.value)).toEqual(['status'])
+    expect(calls).toBe(0)
+  })
+
+  test('does not treat arbitrary boolean preprocessors as boolean flags', () => {
+    const debug = z.preprocess((value) => {
+      if (value === 'yes') return true
+      if (value === 'no') return false
+      return 'invalid'
+    }, z.boolean())
+    const candidates = Completions.complete(
+      new Map([['status', { description: 'Status' }]]),
+      { options: z.object({ debug }) },
+      ['mycli', '--debug', ''],
+      2,
+    )
+
+    expect(candidates).toEqual([])
+  })
+
+  test('does not treat boolean literal options as boolean flags', () => {
+    const candidates = Completions.complete(
+      new Map([['status', { description: 'Status' }]]),
+      { options: z.object({ exact: z.literal(false).optional() }) },
+      ['mycli', '--exact', ''],
+      2,
+    )
+
+    expect(candidates).toEqual([])
+  })
+
+  test('does not treat string-parsed boolean options as boolean flags', () => {
+    const candidates = Completions.complete(
+      new Map([['status', { description: 'Status' }]]),
+      { options: z.object({ debug: z.stringbool().optional() }) },
+      ['mycli', '--debug', ''],
+      2,
+    )
+
+    expect(candidates).toEqual([])
+  })
+
   test('includes descriptions', () => {
     const cli = makeCli()
     const commands = Cli.toCommands.get(cli)!

@@ -292,6 +292,36 @@ function resolveTypeName(schema: unknown): string {
   if (unwrapped instanceof z.ZodString) return 'string'
   if (unwrapped instanceof z.ZodNumber) return 'number'
   if (unwrapped instanceof z.ZodBoolean) return 'boolean'
+  // Generated OpenAPI booleans accept real booleans plus CLI "true"/"false" strings.
+  // Check that public schema shape instead of running user validation during introspection.
+  const input = z.toJSONSchema(unwrapped as z.ZodType, {
+    unrepresentable: 'any',
+    io: 'input',
+  }) as {
+    anyOf?: { enum?: unknown[] | undefined; type?: unknown | undefined }[] | undefined
+    const?: unknown | undefined
+    type?: unknown | undefined
+  }
+  const output = z.toJSONSchema(unwrapped as z.ZodType, {
+    unrepresentable: 'any',
+    io: 'output',
+  }) as {
+    const?: unknown | undefined
+    type?: unknown | undefined
+  }
+  if (
+    input.anyOf?.some((schema) => schema.type === 'boolean') &&
+    input.anyOf?.some(
+      (schema) =>
+        schema.type === 'string' &&
+        schema.enum?.includes('true') &&
+        schema.enum.includes('false') &&
+        schema.enum.length === 2,
+    ) &&
+    output.type === 'boolean' &&
+    !('const' in output)
+  )
+    return 'boolean'
   if (unwrapped instanceof z.ZodArray) return 'array'
   if (unwrapped instanceof z.ZodEnum) {
     const values = Object.values((unwrapped as any)._zod.def.entries) as string[]

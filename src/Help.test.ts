@@ -160,6 +160,68 @@ describe('formatCommand', () => {
     expect(line).toBe('  --dry-run  Preview without submitting.')
   })
 
+  test('does not run transformed boolean schemas when formatting help', () => {
+    let calls = 0
+    const dryRun = z
+      .union([
+        z.boolean(),
+        z.enum(['true', 'false']).transform((value) => {
+          calls++
+          return value === 'true'
+        }),
+      ])
+      .pipe(z.boolean())
+
+    const result = Help.formatCommand('tool deploy', {
+      options: z.object({ dryRun: dryRun.optional().describe('Preview without submitting.') }),
+    })
+    const line = result.split('\n').find((line) => line.includes('--dry-run'))
+
+    expect(line).toBe('  --dry-run  Preview without submitting.')
+    expect(calls).toBe(0)
+  })
+
+  test('keeps value placeholders for arbitrary boolean preprocessors', () => {
+    const debug = z
+      .preprocess((value) => {
+        if (value === 'yes') return true
+        if (value === 'no') return false
+        return 'invalid'
+      }, z.boolean())
+      .describe('Enable debug output.')
+
+    const result = Help.formatCommand('tool deploy', {
+      options: z.object({ debug }),
+    })
+    const line = result.split('\n').find((line) => line.includes('--debug'))
+
+    expect(line).toBe('  --debug <value>  Enable debug output.')
+  })
+
+  test('keeps value placeholders for boolean literal options', () => {
+    const result = Help.formatCommand('tool deploy', {
+      options: z.object({
+        exact: z.literal(false).optional().describe('Must be false.'),
+      }),
+    })
+
+    const line = result.split('\n').find((line) => line.includes('--exact'))
+
+    expect(line).toBe('  --exact <value>  Must be false.')
+  })
+
+  test('keeps value placeholders for string-parsed boolean options', () => {
+    const result = Help.formatCommand('tool deploy', {
+      options: z.object({
+        debug: z.stringbool().optional().describe('Enable debug output.'),
+      }),
+    })
+
+    const line = result.split('\n').find((line) => line.includes('--debug'))
+
+    expect(line).toBe('  --debug <value>  Enable debug output.')
+  })
+
   test('omits value placeholders for aliased boolean flag options', () => {
     const result = Help.formatCommand('tool deploy', {
       options: z.object({

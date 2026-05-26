@@ -1,4 +1,4 @@
-import type { z } from 'zod'
+import { z } from 'zod'
 
 import type { Shell } from './internal/command.js'
 
@@ -196,7 +196,33 @@ function isBooleanOption(name: string, schema: z.ZodObject<any>): boolean {
   const field = schema.shape[name]
   if (!field) return false
   if (typeof field.meta === 'function' && field.meta()?.count === true) return true
-  return unwrap(field).constructor.name === 'ZodBoolean'
+  const inner = unwrap(field)
+  if (inner.constructor.name === 'ZodBoolean') return true
+  // Generated OpenAPI booleans accept real booleans plus CLI "true"/"false" strings.
+  // Check that public schema shape instead of running user validation during introspection.
+  const input = z.toJSONSchema(inner, { unrepresentable: 'any', io: 'input' }) as {
+    anyOf?: { enum?: unknown[] | undefined; type?: unknown | undefined }[] | undefined
+    const?: unknown | undefined
+    type?: unknown | undefined
+  }
+  const output = z.toJSONSchema(inner, { unrepresentable: 'any', io: 'output' }) as {
+    const?: unknown | undefined
+    type?: unknown | undefined
+  }
+  if (
+    input.anyOf?.some((schema) => schema.type === 'boolean') &&
+    input.anyOf?.some(
+      (schema) =>
+        schema.type === 'string' &&
+        schema.enum?.includes('true') &&
+        schema.enum.includes('false') &&
+        schema.enum.length === 2,
+    ) &&
+    output.type === 'boolean' &&
+    !('const' in output)
+  )
+    return true
+  return false
 }
 
 /** @internal Extracts possible values from enum schemas. */

@@ -44,13 +44,29 @@ export type Commands<
   : {}
 
 type OperationCommandName<name extends string, item> = item extends object
-  ? {
-      [method in keyof item & string]: method extends OperationMethod
-        ? item[method] extends { operationId: infer id extends string }
+  ? MethodCommandName<name, item> | AdditionalOperationCommandName<name, item>
+  : never
+
+type MethodCommandName<name extends string, item> = {
+  [method in keyof item & string]: method extends OperationMethod
+    ? item[method] extends { operationId: infer id extends string }
+      ? `${name} ${id}`
+      : `${name} ${method} ${string}`
+    : never
+}[keyof item & string]
+
+type AdditionalOperationCommandName<name extends string, item> = item extends {
+  additionalOperations: infer operations
+}
+  ? operations extends object
+    ? {
+        [method in keyof operations & string]: operations[method] extends {
+          operationId: infer id extends string
+        }
           ? `${name} ${id}`
           : `${name} ${method} ${string}`
-        : never
-    }[keyof item & string]
+      }[keyof operations & string]
+    : never
   : never
 
 type OperationMethod =
@@ -152,9 +168,11 @@ type CommandSegment = {
 }
 
 type OperationEntry = {
+  httpMethod: string
   method: string
   operation: Operation
   path: string
+  pathParameters: readonly Parameter[]
 }
 
 function addEntry(paths: NonNullable<Document['paths']>, segments: string[], entry: any) {
@@ -392,7 +410,7 @@ export function generateCommandsSync(
   const namespaceInfo = getNamespaceInfo(operations)
   const { config } = options
 
-  for (const { method, operation: op, path } of operations) {
+  for (const { httpMethod, method, operation: op, path, pathParameters } of operations) {
     const segments = commandSegments({
       method,
       mode: config?.mode ?? 'operation',
@@ -400,15 +418,21 @@ export function generateCommandsSync(
       operation: op,
       path,
     })
-    const httpMethod = method.toUpperCase()
 
-    const pathParams = (op.parameters ?? []).filter((p) => p.in === 'path')
-    const queryParams = (op.parameters ?? []).filter((p) => p.in === 'query')
+    const parameters = mergeParameters(pathParameters, op.parameters ?? [])
+    const pathParams = orderPathParameters(
+      path,
+      parameters.filter((p) => p.in === 'path'),
+    )
+    const queryParams = parameters.filter((p) => p.in === 'query')
 
     const bodySchema = op.requestBody?.content?.['application/json']?.schema
     const bodyProps = (bodySchema?.properties ?? {}) as Record<string, Record<string, unknown>>
     const bodyRequired = new Set((bodySchema?.required as string[]) ?? [])
     const outputSchema = responseSchema(op.responses)
+    const bodyKeys = Object.keys(bodyProps)
+    const bodyIsObject = bodySchema?.type === 'object' || bodySchema?.properties !== undefined
+    const requestBodyRequired = op.requestBody?.required === true
 
     // Build args Zod schema from path params
     let argsSchema: z.ZodObject<any> | undefined
@@ -433,10 +457,19 @@ export function generateCommandsSync(
     }
     for (const [key, schema] of Object.entries(bodyProps)) {
       let zodType = toZod(schema)
-      if (!bodyRequired.has(key)) zodType = zodType.optional()
+      if (!requestBodyRequired) zodType = withoutDefault(zodType)
+      zodType = coerceIfNeeded(zodType)
+      if (!requestBodyRequired || !bodyRequired.has(key)) zodType = zodType.optional()
       optShape[key] = zodType
     }
-    const optionsSchema = Object.keys(optShape).length > 0 ? z.object(optShape) : undefined
+    const optionsSchema =
+      Object.keys(optShape).length > 0
+        ? refineOptionalBody(z.object(optShape), {
+            bodyKeys,
+            bodyRequired,
+            requestBodyRequired,
+          })
+        : undefined
 
     setCommand(commands, segments, {
       description: op.summary ?? op.description,
@@ -451,6 +484,8 @@ export function generateCommandsSync(
         pathParams,
         queryParams,
         bodyProps,
+        bodyIsObject,
+        requestBodyRequired,
       }),
     })
   }
@@ -476,15 +511,17 @@ const openapiMethods = new Set([
   'patch',
   'post',
   'put',
+  'query',
   'trace',
 ])
 
 function openapiOperations(paths: Record<string, Record<string, unknown>>) {
   const operations: OperationEntry[] = []
-  for (const [path, methods] of Object.entries(paths))
-    for (const [method, operation] of Object.entries(methods))
-      if (openapiMethods.has(method))
-        operations.push({ method, operation: operation as Operation, path })
+  for (const [path, item] of Object.entries(paths)) {
+    const pathParameters = (item.parameters ?? []) as Parameter[]
+    for (const [method, httpMethod, operation] of operationEntries(item))
+      operations.push({ httpMethod, method, operation, path, pathParameters })
+  }
   return operations
 }
 
@@ -504,8 +541,7 @@ function getNamespaceInfo(operations: OperationEntry[]) {
 
 function commandSegments(options: commandSegments.Options): CommandSegment[] {
   const { method, mode, namespaceInfo, operation, path } = options
-  if (mode === 'operation')
-    return [{ name: operation.operationId ?? `${method}_${path.replace(/[/{}]/g, '_')}` }]
+  if (mode === 'operation') return [{ name: operation.operationId ?? fallbackName(method, path) }]
 
   const segments = namespaceSegments(path, operation)
   const needsMethod =
@@ -569,6 +605,40 @@ function isCommandSegment(segment: CommandSegment | undefined): segment is Comma
   return segment !== undefined
 }
 
+type PathItem = {
+  additionalOperations?: Record<string, Operation> | undefined
+  parameters?: Parameter[] | undefined
+  [key: string]: unknown
+}
+
+function operationEntries(item: Record<string, unknown>): [string, string, Operation][] {
+  const entries: [string, string, Operation][] = []
+  for (const [method, operation] of Object.entries(item))
+    if (openapiMethods.has(method))
+      entries.push([method, method.toUpperCase(), operation as Operation])
+  for (const [method, operation] of Object.entries((item as PathItem).additionalOperations ?? {}))
+    entries.push([method, method, operation])
+  return entries
+}
+
+function mergeParameters(
+  pathParameters: readonly Parameter[],
+  operationParameters: readonly Parameter[],
+) {
+  const parameters = new Map<string, Parameter>()
+  for (const p of pathParameters) parameters.set(`${p.in}:${p.name}`, p)
+  for (const p of operationParameters) parameters.set(`${p.in}:${p.name}`, p)
+  return [...parameters.values()]
+}
+
+function orderPathParameters(path: string, parameters: Parameter[]) {
+  const order = new Map<string, number>()
+  for (const match of path.matchAll(/\{([^}]+)\}/g)) order.set(match[1]!, order.size)
+  return parameters.sort(
+    (a, b) => (order.get(a.name) ?? Infinity) - (order.get(b.name) ?? Infinity),
+  )
+}
+
 function describeNamespaceLeaf(
   segments: CommandSegment[],
   description: string | undefined,
@@ -613,12 +683,14 @@ function getGroup(commands: Map<string, GeneratedEntry>, segment: CommandSegment
 
 function createHandler(config: {
   basePath?: string | undefined
+  bodyIsObject: boolean
   bodyProps: Record<string, Record<string, unknown>>
   fetch: FetchHandler
   httpMethod: string
   path: string
   pathParams: Parameter[]
   queryParams: Parameter[]
+  requestBodyRequired: boolean
 }) {
   return async (context: any) => {
     const { args = {}, options = {} } = context
@@ -627,7 +699,8 @@ function createHandler(config: {
     let urlPath = (config.basePath ?? '') + config.path
     for (const p of config.pathParams) {
       const value = args[p.name]
-      if (value !== undefined) urlPath = urlPath.replace(`{${p.name}}`, String(value))
+      if (value !== undefined)
+        urlPath = urlPath.replace(`{${p.name}}`, encodeURIComponent(String(value)))
     }
 
     // Build query string from query params
@@ -640,10 +713,11 @@ function createHandler(config: {
     // Build body from body properties
     let body: string | undefined
     const bodyKeys = Object.keys(config.bodyProps)
-    if (bodyKeys.length > 0) {
+    if (bodyKeys.length > 0 || (config.requestBodyRequired && config.bodyIsObject)) {
       const bodyObj: Record<string, unknown> = {}
       for (const key of bodyKeys) if (options[key] !== undefined) bodyObj[key] = options[key]
-      if (Object.keys(bodyObj).length > 0) body = JSON.stringify(bodyObj)
+      if (Object.keys(bodyObj).length > 0 || (config.requestBodyRequired && config.bodyIsObject))
+        body = JSON.stringify(bodyObj)
     }
 
     const input: Fetch.FetchInput = {
@@ -683,30 +757,81 @@ function toZod(schema: Record<string, unknown>): z.ZodType {
 /** Wraps a Zod schema with coercion if the base type is number or boolean (argv is always strings). */
 function coerceIfNeeded(schema: z.ZodType): z.ZodType {
   const isOptional = schema instanceof z.ZodOptional
-  const inner = isOptional ? schema.unwrap() : schema
+  const withoutOptional = isOptional ? schema.unwrap() : schema
+  const hasDefault = withoutOptional instanceof z.ZodDefault
+  const inner = hasDefault ? withoutOptional.unwrap() : withoutOptional
 
-  const coerced = (() => {
+  const coerced: z.ZodType | undefined = (() => {
     // Direct number
-    if (inner instanceof z.ZodNumber)
-      return isOptional ? z.coerce.number().optional() : z.coerce.number()
+    if (inner instanceof z.ZodNumber) return z.coerce.number()
     // Direct boolean
-    if (inner instanceof z.ZodBoolean)
-      return isOptional ? z.coerce.boolean().optional() : z.coerce.boolean()
+    if (inner instanceof z.ZodBoolean) return strictBoolean()
     // Union containing number or boolean (e.g. type: ["number", "null"] from OpenAPI 3.1)
     if (inner instanceof z.ZodUnion) {
       const options = (inner as any)._zod?.def?.options as z.ZodType[] | undefined
-      if (options?.some((o: z.ZodType) => o instanceof z.ZodNumber))
-        return isOptional ? z.coerce.number().optional() : z.coerce.number()
-      if (options?.some((o: z.ZodType) => o instanceof z.ZodBoolean))
-        return isOptional ? z.coerce.boolean().optional() : z.coerce.boolean()
+      if (options?.some((o: z.ZodType) => o instanceof z.ZodNumber)) return z.coerce.number()
+      if (options?.some((o: z.ZodType) => o instanceof z.ZodBoolean)) return strictBoolean()
+      const booleanValues = new Set(
+        options?.flatMap((o) =>
+          o instanceof z.ZodLiteral
+            ? (((o as any)._zod?.def?.values ?? []) as unknown[]).filter(
+                (value) => typeof value === 'boolean',
+              )
+            : [],
+        ),
+      )
+      if (
+        options?.every((o) => o instanceof z.ZodLiteral) &&
+        options.length === booleanValues.size &&
+        booleanValues.has(true) &&
+        booleanValues.has(false)
+      )
+        return strictBoolean()
     }
     // No coercion needed
     return undefined
   })()
 
   if (!coerced) return schema
+  let wrapped: z.ZodType = coerced
+  if (hasDefault) wrapped = (wrapped as any).default((withoutOptional as any)._zod.def.defaultValue)
+  if (isOptional) wrapped = wrapped.optional()
   const desc = (schema as any).description ?? (inner as any).description
-  return desc ? coerced.describe(desc) : coerced
+  return desc ? wrapped.describe(desc) : wrapped
+}
+
+function withoutDefault(schema: z.ZodType): z.ZodType {
+  if (schema instanceof z.ZodDefault) return schema.unwrap() as z.ZodType
+  return schema
+}
+
+function refineOptionalBody(
+  schema: z.ZodObject<any>,
+  options: {
+    bodyKeys: string[]
+    bodyRequired: Set<string>
+    requestBodyRequired: boolean
+  },
+) {
+  const { bodyKeys, bodyRequired, requestBodyRequired } = options
+  if (requestBodyRequired || bodyKeys.length === 0 || bodyRequired.size === 0) return schema
+
+  return schema.superRefine((value, ctx) => {
+    if (!bodyKeys.some((key) => value[key] !== undefined)) return
+    for (const key of bodyRequired)
+      if (value[key] === undefined)
+        ctx.addIssue({
+          code: 'custom',
+          path: [key],
+          message: 'Required when request body is provided',
+        })
+  })
+}
+
+function strictBoolean() {
+  return z
+    .union([z.boolean(), z.enum(['true', 'false']).transform((value) => value === 'true')])
+    .pipe(z.boolean())
 }
 
 function responseSchema(responses: Record<string, unknown> | undefined) {
@@ -719,4 +844,12 @@ function responseSchema(responses: Record<string, unknown> | undefined) {
     | { content?: Record<string, { schema?: Record<string, unknown> | undefined }> | undefined }
     | undefined
   return response?.content?.['application/json']?.schema
+}
+
+function fallbackName(method: string, path: string) {
+  const words = path
+    .split('/')
+    .filter(Boolean)
+    .map((part) => part.replace(/[{}]/g, ''))
+  return [method, ...words].join(' ')
 }

@@ -170,6 +170,14 @@ test('OpenAPI-mounted operations are included in CLI command map type', () => {
             responses: { '200': { description: 'ok' } },
           },
         },
+        '/widgets/{id}/actions': {
+          additionalOperations: {
+            Search: {
+              operationId: 'searchWidgetActions',
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
       },
     },
   })
@@ -177,6 +185,10 @@ test('OpenAPI-mounted operations are included in CLI command map type', () => {
   expectTypeOf<typeof cli>().toMatchTypeOf<
     Cli.Cli<{
       'api listUsers': { args: Record<string, unknown>; options: Record<string, unknown> }
+      'api searchWidgetActions': {
+        args: Record<string, unknown>
+        options: Record<string, unknown>
+      }
     }>
   >()
 })

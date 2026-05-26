@@ -214,6 +214,66 @@ describe('parse', () => {
     expect(result.options).toEqual({ verbose: true })
   })
 
+  test('does not run transformed boolean schemas when detecting flags', () => {
+    let calls = 0
+    const flag = z
+      .union([
+        z.boolean(),
+        z.enum(['true', 'false']).transform((value) => {
+          calls++
+          return value === 'true'
+        }),
+      ])
+      .pipe(z.boolean())
+
+    const result = Parser.parse(['--flag'], {
+      options: z.object({ flag }),
+    })
+
+    expect(result.options).toEqual({ flag: true })
+    expect(calls).toBe(0)
+  })
+
+  test('does not treat arbitrary boolean preprocessors as boolean flags', () => {
+    const debug = z.preprocess((value) => {
+      if (value === 'yes') return true
+      if (value === 'no') return false
+      return 'invalid'
+    }, z.boolean())
+
+    expect(() =>
+      Parser.parse(['--debug'], {
+        options: z.object({ debug }),
+      }),
+    ).toThrow('Missing value for flag: --debug')
+  })
+
+  test('does not treat boolean literals as boolean flags', () => {
+    expect(() =>
+      Parser.parse(['--exact'], {
+        options: z.object({ exact: z.literal(false).optional() }),
+      }),
+    ).toThrow('Missing value for flag: --exact')
+    expect(() =>
+      Parser.parse(['--no-exact'], {
+        options: z.object({ exact: z.literal(false).optional() }),
+      }),
+    ).toThrow('Flag does not support negation: --no-exact')
+  })
+
+  test('does not treat string-parsed booleans as boolean flags', () => {
+    expect(() =>
+      Parser.parse(['--debug'], {
+        options: z.object({ debug: z.stringbool().optional() }),
+      }),
+    ).toThrow('Missing value for flag: --debug')
+    expect(() =>
+      Parser.parse(['--no-debug'], {
+        options: z.object({ debug: z.stringbool().optional() }),
+      }),
+    ).toThrow('Flag does not support negation: --no-debug')
+  })
+
   test('detects array through z.optional()', () => {
     const result = Parser.parse(['--label', 'bug', '--label', 'fix'], {
       options: z.object({ label: z.array(z.string()).optional() }),

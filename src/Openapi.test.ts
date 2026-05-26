@@ -12,8 +12,12 @@ import { app } from '../test/fixtures/hono-api.js'
 import { app as openapiApp, spec as openapiSpec } from '../test/fixtures/hono-openapi-app.js'
 import { spec } from '../test/fixtures/openapi-spec.js'
 import * as Cli from './Cli.js'
+import * as Completions from './Completions.js'
 import * as Fetch from './Fetch.js'
+import * as Help from './Help.js'
 import * as Openapi from './Openapi.js'
+import * as Parser from './Parser.js'
+import * as Schema from './Schema.js'
 
 function serve(cli: { serve: Cli.Cli['serve'] }, argv: string[]) {
   let output = ''
@@ -33,6 +37,12 @@ function serve(cli: { serve: Cli.Cli['serve'] }, argv: string[]) {
 
 function json(output: string) {
   return JSON.parse(output.replace(/"duration": "[^"]+"/g, '"duration": "<stripped>"'))
+}
+
+function command(commands: Map<string, any>, name: string) {
+  const entry = commands.get(name)
+  if (!entry || '_group' in entry) throw new Error(`expected ${name} command`)
+  return entry
 }
 
 function openapiUrl() {
@@ -149,28 +159,25 @@ describe('generateCommands', () => {
 
   test('command has description from summary', async () => {
     const commands = await Openapi.generateCommands(spec, app.fetch)
-    const cmd = commands.get('listUsers')!
-    if ('_group' in cmd) throw new Error('expected listUsers command')
+    const cmd = command(commands, 'listUsers')
     expect(cmd.description).toBe('List users')
   })
 
   test('coerced number params preserve description', async () => {
     const commands = await Openapi.generateCommands(spec, app.fetch)
-    const cmd = commands.get('listUsers')!
-    if ('_group' in cmd) throw new Error('expected listUsers command')
+    const cmd = command(commands, 'listUsers')
     const limitSchema = cmd.options!.shape.limit
     expect(limitSchema.description).toBe('Max results')
   })
 
-  test('infers output from JSON response schemas', async () => {
+  test('infers output and supports fallback command names', async () => {
     const commands = await Openapi.generateCommands(
       {
         paths: {
           '/users/posts': {
             get: {
-              operationId: 'listPosts',
               responses: {
-                '200': {
+                '204': {
                   content: {
                     'application/json': {
                       schema: {
@@ -185,11 +192,20 @@ describe('generateCommands', () => {
           },
         },
       },
-      () => new Response(JSON.stringify({ ok: true })),
+      (req) => {
+        expect(new URL(req.url).pathname).toBe('/users/posts')
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { 'content-type': 'application/json' },
+        })
+      },
     )
-    const command = commands.get('listPosts')!
-    if ('_group' in command) throw new Error('expected listPosts command')
-    expect(command.output).toBeDefined()
+    const cmd = command(commands, 'get users posts')
+    expect(cmd.output).toBeDefined()
+    await cmd.run({
+      args: {},
+      options: {},
+      error: (value: unknown) => value,
+    })
   })
 
   test('generates namespace command groups from paths', async () => {
@@ -222,6 +238,705 @@ describe('generateCommands', () => {
         "get",
       ]
     `)
+  })
+
+  test('path-level parameters are applied and non-operation fields are ignored', async () => {
+    const commands = await Openapi.generateCommands(
+      {
+        paths: {
+          '/orgs/{orgId}/users': {
+            parameters: [
+              {
+                name: 'orgId',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' },
+              },
+            ],
+            get: {
+              operationId: 'listOrgUsers',
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      app.fetch,
+    )
+
+    expect(commands.has('parameters__orgs__orgId__users')).toBe(false)
+    expect(command(commands, 'listOrgUsers').args!.safeParse({ orgId: 'acme' }).success).toBe(true)
+  })
+
+  test('path-level query parameter is inherited', async () => {
+    const commands = await Openapi.generateCommands(
+      {
+        paths: {
+          '/users': {
+            parameters: [
+              {
+                name: 'active',
+                in: 'query',
+                schema: { type: 'boolean' },
+              },
+            ],
+            get: {
+              operationId: 'listUsers',
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      app.fetch,
+    )
+
+    const options = command(commands, 'listUsers').options!
+    expect(options.parse({ active: 'true' }).active).toBe(true)
+  })
+
+  test('operation-level parameter overrides path-level same in:name', async () => {
+    const commands = await Openapi.generateCommands(
+      {
+        paths: {
+          '/users': {
+            parameters: [
+              {
+                name: 'filter',
+                in: 'query',
+                schema: { enum: ['path'] },
+              },
+            ],
+            get: {
+              operationId: 'listUsers',
+              parameters: [
+                {
+                  name: 'filter',
+                  in: 'query',
+                  schema: { enum: ['operation'] },
+                },
+              ],
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      app.fetch,
+    )
+
+    const options = command(commands, 'listUsers').options!
+    expect(options.safeParse({ filter: 'operation' }).success).toBe(true)
+    expect(options.safeParse({ filter: 'path' }).success).toBe(false)
+  })
+
+  test('OpenAPI 3.2 query and additionalOperations generate commands', async () => {
+    const calls: { method: string; path: string; query: Record<string, string> }[] = []
+    const commands = await Openapi.generateCommands(
+      {
+        paths: {
+          '/widgets/{id}/actions': {
+            summary: 'Widget actions',
+            'x-note': 'metadata',
+            parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+            query: {
+              operationId: 'queryWidgetActions',
+              parameters: [{ name: 'filter', in: 'query', schema: { type: 'string' } }],
+              responses: { '200': { description: 'ok' } },
+            },
+            additionalOperations: {
+              Search: {
+                operationId: 'searchWidgetActions',
+                parameters: [{ name: 'cursor', in: 'query', schema: { type: 'string' } }],
+                responses: { '200': { description: 'ok' } },
+              },
+            },
+          },
+        },
+      },
+      (req) => {
+        const url = new URL(req.url)
+        calls.push({
+          method: req.method,
+          path: url.pathname,
+          query: Object.fromEntries(url.searchParams),
+        })
+        return Response.json({})
+      },
+    )
+
+    expect(commands.has('queryWidgetActions')).toBe(true)
+    expect(commands.has('searchWidgetActions')).toBe(true)
+    expect(commands.has('summary__widgets__id__actions')).toBe(false)
+    expect(commands.has('additionalOperations__widgets__id__actions')).toBe(false)
+
+    await command(commands, 'queryWidgetActions').run({
+      args: { id: 'a/b' },
+      options: { filter: 'open' },
+      error: (value: unknown) => value,
+    })
+    await command(commands, 'searchWidgetActions').run({
+      args: { id: 'a b' },
+      options: { cursor: 'next' },
+      error: (value: unknown) => value,
+    })
+
+    expect(calls).toEqual([
+      { method: 'QUERY', path: '/widgets/a%2Fb/actions', query: { filter: 'open' } },
+      { method: 'Search', path: '/widgets/a%20b/actions', query: { cursor: 'next' } },
+    ])
+  })
+
+  test('encodes interpolated path parameters', async () => {
+    const calls: string[] = []
+    const commands = await Openapi.generateCommands(
+      {
+        paths: {
+          '/users/{id}': {
+            get: {
+              operationId: 'getUser',
+              parameters: [
+                {
+                  name: 'id',
+                  in: 'path',
+                  required: true,
+                  schema: { type: 'string' },
+                },
+              ],
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      (req) => {
+        calls.push(new URL(req.url).pathname)
+        return new Response('{}', { headers: { 'content-type': 'application/json' } })
+      },
+    )
+
+    await command(commands, 'getUser').run({
+      args: { id: 'a/b' },
+      options: {},
+      error: (value: unknown) => value,
+    })
+
+    expect(calls).toEqual(['/users/a%2Fb'])
+  })
+
+  test('optional request body enforces required properties only when body is provided', async () => {
+    const commands = await Openapi.generateCommands(
+      {
+        paths: {
+          '/users': {
+            post: {
+              operationId: 'createUser',
+              requestBody: {
+                required: false,
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      required: ['name'],
+                      properties: { name: { type: 'string' }, age: { type: 'number' } },
+                    },
+                  },
+                },
+              },
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      app.fetch,
+    )
+
+    const options = command(commands, 'createUser').options!
+    expect(options.safeParse({}).success).toBe(true)
+    expect(options.safeParse({ name: 'Alice' }).success).toBe(true)
+    expect(options.safeParse({ age: 42 }).success).toBe(false)
+  })
+
+  test('query options do not make optional request bodies count as provided', async () => {
+    const commands = await Openapi.generateCommands(
+      {
+        paths: {
+          '/users': {
+            post: {
+              operationId: 'createUser',
+              parameters: [{ name: 'dryRun', in: 'query', schema: { type: 'boolean' } }],
+              requestBody: {
+                required: false,
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      required: ['name'],
+                      properties: { name: { type: 'string' }, age: { type: 'number' } },
+                    },
+                  },
+                },
+              },
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      app.fetch,
+    )
+
+    const options = command(commands, 'createUser').options!
+    expect(options.safeParse({ dryRun: true }).success).toBe(true)
+    expect(options.safeParse({ dryRun: true, age: 42 }).success).toBe(false)
+  })
+
+  test('optional request body ignores defaults when deciding whether body is provided', async () => {
+    const commands = await Openapi.generateCommands(
+      {
+        paths: {
+          '/users': {
+            post: {
+              operationId: 'createUser',
+              requestBody: {
+                required: false,
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      required: ['name'],
+                      properties: {
+                        name: { type: 'string' },
+                        dryRun: { type: 'boolean', default: false },
+                      },
+                    },
+                  },
+                },
+              },
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      app.fetch,
+    )
+
+    const options = command(commands, 'createUser').options!
+    expect(options.safeParse({}).success).toBe(true)
+    expect(options.safeParse({ dryRun: false }).success).toBe(false)
+    expect(options.safeParse({ name: 'Alice' }).success).toBe(true)
+  })
+
+  test('body boolean string coercion accepts true and false only', async () => {
+    const commands = await Openapi.generateCommands(
+      {
+        paths: {
+          '/users': {
+            post: {
+              operationId: 'createUser',
+              requestBody: {
+                required: true,
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        active: { type: 'boolean', default: false },
+                      },
+                    },
+                  },
+                },
+              },
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      app.fetch,
+    )
+
+    const options = command(commands, 'createUser').options!
+    expect(options.parse({ active: 'true' }).active).toBe(true)
+    expect(options.parse({ active: 'false' }).active).toBe(false)
+    expect(options.parse({}).active).toBe(false)
+    expect(options.safeParse({ active: 'yes' }).success).toBe(false)
+  })
+
+  test('required request body requires required properties', async () => {
+    const commands = await Openapi.generateCommands(
+      {
+        paths: {
+          '/users': {
+            post: {
+              operationId: 'createUser',
+              requestBody: {
+                required: true,
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      required: ['name'],
+                      properties: { name: { type: 'string' }, age: { type: 'number' } },
+                    },
+                  },
+                },
+              },
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      app.fetch,
+    )
+
+    const options = command(commands, 'createUser').options!
+    expect(options.safeParse({}).success).toBe(false)
+    expect(options.safeParse({ name: 'Alice' }).success).toBe(true)
+  })
+
+  test('required request body sends empty object when no body fields are provided', async () => {
+    const bodies: string[] = []
+    const commands = await Openapi.generateCommands(
+      {
+        paths: {
+          '/profile': {
+            post: {
+              operationId: 'updateProfile',
+              requestBody: {
+                required: true,
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: { nickname: { type: 'string' } },
+                    },
+                  },
+                },
+              },
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+          '/empty': {
+            post: {
+              operationId: 'createEmpty',
+              requestBody: {
+                required: true,
+                content: { 'application/json': { schema: { type: 'object', properties: {} } } },
+              },
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      async (req) => {
+        bodies.push(await req.text())
+        return new Response('{}', { headers: { 'content-type': 'application/json' } })
+      },
+    )
+
+    await command(commands, 'updateProfile').run({ options: {}, error: (value: unknown) => value })
+    await command(commands, 'createEmpty').run({ options: {}, error: (value: unknown) => value })
+
+    expect(bodies).toEqual(['{}', '{}'])
+  })
+
+  test('required non-object request bodies do not synthesize JSON objects', async () => {
+    const calls: { body: string; contentType: string | null; path: string }[] = []
+    const commands = await Openapi.generateCommands(
+      {
+        paths: {
+          '/scalar': {
+            post: {
+              operationId: 'postScalar',
+              requestBody: {
+                required: true,
+                content: { 'application/json': { schema: { type: 'string' } } },
+              },
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+          '/array': {
+            post: {
+              operationId: 'postArray',
+              requestBody: {
+                required: true,
+                content: {
+                  'application/json': {
+                    schema: { type: 'array', items: { type: 'string' } },
+                  },
+                },
+              },
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+          '/plain': {
+            post: {
+              operationId: 'postPlain',
+              requestBody: {
+                required: true,
+                content: { 'text/plain': { schema: { type: 'string' } } },
+              },
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      async (req) => {
+        calls.push({
+          path: new URL(req.url).pathname,
+          body: await req.text(),
+          contentType: req.headers.get('content-type'),
+        })
+        return Response.json({})
+      },
+    )
+
+    for (const name of ['postScalar', 'postArray', 'postPlain'])
+      await command(commands, name).run({ options: {}, error: (value: unknown) => value })
+
+    expect(calls).toEqual([
+      { path: '/scalar', body: '', contentType: null },
+      { path: '/array', body: '', contentType: null },
+      { path: '/plain', body: '', contentType: null },
+    ])
+  })
+
+  test('boolean string coercion accepts true and false only', async () => {
+    const commands = await Openapi.generateCommands(
+      {
+        paths: {
+          '/users': {
+            get: {
+              operationId: 'listUsers',
+              parameters: [
+                {
+                  name: 'active',
+                  in: 'query',
+                  schema: { type: 'boolean' },
+                },
+              ],
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+          '/users/{active}': {
+            get: {
+              operationId: 'getUsersByActive',
+              parameters: [
+                {
+                  name: 'active',
+                  in: 'path',
+                  required: true,
+                  schema: { type: 'boolean' },
+                },
+              ],
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+          '/defaulted': {
+            get: {
+              operationId: 'listDefaulted',
+              parameters: [
+                {
+                  name: 'active',
+                  in: 'query',
+                  schema: { type: 'boolean', default: false },
+                },
+              ],
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      app.fetch,
+    )
+    const query = command(commands, 'listUsers').options!
+    const args = command(commands, 'getUsersByActive').args!
+    const defaulted = command(commands, 'listDefaulted').options!
+
+    expect(query.parse({ active: 'true' }).active).toBe(true)
+    expect(query.parse({ active: 'false' }).active).toBe(false)
+    expect(query.safeParse({ active: 'yes' }).success).toBe(false)
+    expect(args.parse({ active: 'true' }).active).toBe(true)
+    expect(args.parse({ active: 'false' }).active).toBe(false)
+    expect(args.safeParse({ active: 'yes' }).success).toBe(false)
+    expect(defaulted.parse({}).active).toBe(false)
+    expect(defaulted.parse({ active: 'true' }).active).toBe(true)
+    expect(defaulted.safeParse({ active: 'yes' }).success).toBe(false)
+  })
+
+  test('boolean enum query options parse as flags', async () => {
+    const commands = await Openapi.generateCommands(
+      {
+        paths: {
+          '/users': {
+            get: {
+              operationId: 'listUsers',
+              parameters: [
+                {
+                  name: 'active',
+                  in: 'query',
+                  schema: { type: 'boolean', enum: [true, false] },
+                },
+              ],
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      app.fetch,
+    )
+    const options = command(commands, 'listUsers').options!
+    const help = Help.formatCommand('api listUsers', { options })
+    const candidates = Completions.complete(
+      new Map([['status', { description: 'Status' }]]),
+      { options },
+      ['api', '--active', ''],
+      2,
+    )
+
+    expect(help).toContain('--active')
+    expect(help).not.toContain('--active <')
+    expect(candidates.map((c) => c.value)).toContain('status')
+    expect(Parser.parse(['--active'], { options }).options).toEqual({ active: true })
+    expect(Parser.parse(['--no-active'], { options }).options).toEqual({ active: false })
+    expect(Parser.parse(['--active=false'], { options }).options).toEqual({ active: false })
+    expect(options.safeParse({ active: 'yes' }).success).toBe(false)
+  })
+
+  test('single-value boolean enum query options do not parse as general flags', async () => {
+    const commands = await Openapi.generateCommands(
+      {
+        paths: {
+          '/users': {
+            get: {
+              operationId: 'listUsers',
+              parameters: [
+                {
+                  name: 'active',
+                  in: 'query',
+                  schema: { type: 'boolean', enum: [true] },
+                },
+              ],
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      app.fetch,
+    )
+    const options = command(commands, 'listUsers').options!
+
+    expect(() => Parser.parse(['--active'], { options })).toThrow(
+      'Missing value for flag: --active',
+    )
+    expect(() => Parser.parse(['--no-active'], { options })).toThrow(
+      'Flag does not support negation: --no-active',
+    )
+  })
+
+  test('mixed literal enum query options do not collapse to booleans', async () => {
+    const commands = await Openapi.generateCommands(
+      {
+        paths: {
+          '/users': {
+            get: {
+              operationId: 'listUsers',
+              parameters: [
+                {
+                  name: 'active',
+                  in: 'query',
+                  schema: { enum: [true, false, 'auto'] },
+                },
+              ],
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      app.fetch,
+    )
+    const options = command(commands, 'listUsers').options!
+
+    expect(options.parse({ active: 'auto' }).active).toBe('auto')
+    expect(Parser.parse(['--active', 'auto'], { options }).options).toEqual({ active: 'auto' })
+    expect(() => Parser.parse(['--active'], { options })).toThrow(
+      'Missing value for flag: --active',
+    )
+  })
+
+  test('boolean query options are rendered as boolean flags in help', async () => {
+    const commands = await Openapi.generateCommands(
+      {
+        paths: {
+          '/users': {
+            get: {
+              operationId: 'listUsers',
+              parameters: [{ name: 'active', in: 'query', schema: { type: 'boolean' } }],
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      app.fetch,
+    )
+
+    const output = Help.formatCommand('api listUsers', {
+      options: command(commands, 'listUsers').options,
+    })
+
+    expect(output).toContain('--active')
+    expect(output).not.toContain('--active <')
+  })
+
+  test('boolean query options do not consume the next completion word', async () => {
+    const commands = await Openapi.generateCommands(
+      {
+        paths: {
+          '/users': {
+            get: {
+              operationId: 'listUsers',
+              parameters: [{ name: 'active', in: 'query', schema: { type: 'boolean' } }],
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      app.fetch,
+    )
+    const root = { options: command(commands, 'listUsers').options }
+    const candidates = Completions.complete(
+      new Map([['status', { description: 'Status' }]]),
+      root,
+      ['api', '--active', ''],
+      2,
+    )
+
+    expect(candidates.map((c) => c.value)).toContain('status')
+  })
+
+  test('generated boolean query options parse as flags without marker metadata', async () => {
+    const commands = await Openapi.generateCommands(
+      {
+        paths: {
+          '/users': {
+            get: {
+              operationId: 'listUsers',
+              parameters: [{ name: 'active', in: 'query', schema: { type: 'boolean' } }],
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+      app.fetch,
+    )
+    const options = command(commands, 'listUsers').options!
+
+    expect(Parser.parse(['--active'], { options }).options).toEqual({ active: true })
+    expect(Parser.parse(['--no-active'], { options }).options).toEqual({ active: false })
+    expect(Parser.parse(['--active=false'], { options }).options).toEqual({ active: false })
+
+    const jsonSchema = Schema.toJsonSchema(options)
+    expect(jsonSchema).toEqual({
+      type: 'object',
+      properties: { active: { type: 'boolean' } },
+      additionalProperties: false,
+    })
+    expect(JSON.stringify(jsonSchema)).not.toContain('openapiStrictBoolean')
   })
 })
 
@@ -372,6 +1087,131 @@ describe('cli integration', () => {
   test('missing required path param shows validation error', async () => {
     const { exitCode } = await serve(createCli(), ['api', 'getUser'])
     expect(exitCode).toBe(1)
+  })
+
+  test('generated OpenAPI boolean query option behaves like a CLI flag', async () => {
+    const createCli = () =>
+      Cli.create('test', { description: 'test' }).command('api', {
+        fetch(req) {
+          const active = new URL(req.url).searchParams.get('active')
+          return Response.json({ active: active === null ? null : active === 'true' })
+        },
+        openapi: {
+          paths: {
+            '/users': {
+              get: {
+                operationId: 'listUsers',
+                parameters: [
+                  {
+                    name: 'active',
+                    in: 'query',
+                    schema: { type: 'boolean' },
+                  },
+                ],
+                responses: { '200': { description: 'ok' } },
+              },
+            },
+            '/defaulted': {
+              get: {
+                operationId: 'listDefaulted',
+                parameters: [
+                  {
+                    name: 'active',
+                    in: 'query',
+                    schema: { type: 'boolean', default: false },
+                  },
+                ],
+                responses: { '200': { description: 'ok' } },
+              },
+            },
+          },
+        },
+      })
+
+    expect(
+      json((await serve(createCli(), ['api', 'listUsers', '--active', '--format', 'json'])).output),
+    ).toEqual({ active: true })
+    expect(
+      json(
+        (await serve(createCli(), ['api', 'listUsers', '--no-active', '--format', 'json'])).output,
+      ),
+    ).toEqual({ active: false })
+    expect(
+      json(
+        (await serve(createCli(), ['api', 'listUsers', '--active=false', '--format', 'json']))
+          .output,
+      ),
+    ).toEqual({ active: false })
+    expect((await serve(createCli(), ['api', 'listUsers', '--active=yes'])).exitCode).toBe(1)
+    expect((await serve(createCli(), ['api', 'listDefaulted', '--active=yes'])).exitCode).toBe(1)
+  })
+
+  test('generated OpenAPI boolean body option rejects non-boolean strings', async () => {
+    const createCli = () =>
+      Cli.create('test', { description: 'test' }).command('api', {
+        async fetch(req) {
+          return Response.json(await req.json())
+        },
+        openapi: {
+          paths: {
+            '/users': {
+              post: {
+                operationId: 'createUser',
+                requestBody: {
+                  required: true,
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          active: { type: 'boolean', default: false },
+                        },
+                      },
+                    },
+                  },
+                },
+                responses: { '200': { description: 'ok' } },
+              },
+            },
+          },
+        },
+      })
+
+    expect(
+      json(
+        (await serve(createCli(), ['api', 'createUser', '--active', '--format', 'json'])).output,
+      ),
+    ).toEqual({ active: true })
+    expect((await serve(createCli(), ['api', 'createUser', '--active=yes'])).exitCode).toBe(1)
+  })
+
+  test('generated path params follow path-template order in help and CLI parsing', async () => {
+    const cli = Cli.create('test', { description: 'test' }).command('api', {
+      fetch(req) {
+        return Response.json({ path: new URL(req.url).pathname })
+      },
+      openapi: {
+        paths: {
+          '/users/{userId}/repos/{repoId}': {
+            get: {
+              operationId: 'getRepo',
+              parameters: [
+                { name: 'repoId', in: 'path', required: true, schema: { type: 'string' } },
+                { name: 'userId', in: 'path', required: true, schema: { type: 'string' } },
+              ],
+              responses: { '200': { description: 'ok' } },
+            },
+          },
+        },
+      },
+    })
+
+    expect((await serve(cli, ['api', 'getRepo', '--help'])).output).toContain(
+      'Usage: test api getRepo <userId> <repoId>',
+    )
+    expect(
+      json((await serve(cli, ['api', 'getRepo', 'alice', 'toolkit', '--format', 'json'])).output),
+    ).toEqual({ path: '/users/alice/repos/toolkit' })
   })
 })
 
