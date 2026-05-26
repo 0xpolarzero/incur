@@ -287,7 +287,67 @@ describe('fromCli', () => {
 
     const output = Typegen.fromCli(cli)
     expect(output).toContain('counts: Record<string, number>')
-    expect(output).toContain('flags: { required: boolean } & Record<string, string>')
+    expect(output).toContain('flags: { required: boolean } & Record<string, string | boolean>')
+  })
+
+  test('catchall schemas widen record values for incompatible fixed properties', () => {
+    const cli = Cli.create('test').command('create', {
+      options: z.object({
+        flags: z.object({ required: z.boolean() }).catchall(z.string()),
+      }),
+      run: () => ({}),
+    })
+
+    const output = Typegen.fromCli(cli)
+    expect(output).toContain('flags: { required: boolean } & Record<string, string | boolean>')
+  })
+
+  test('array item intersections are parenthesized', () => {
+    const cli = Cli.create('test').command('create', {
+      options: z.object({
+        items: z.array(z.object({ id: z.number() }).catchall(z.string())),
+      }),
+      run: () => ({}),
+    })
+
+    const output = Typegen.fromCli(cli)
+    expect(output).toContain('items: ({ id: number } & Record<string, string | number>)[]')
+  })
+
+  test('partial enum records render optional keys', () => {
+    const cli = Cli.create('test').command('create', {
+      options: z.object({
+        counts: z.partialRecord(z.enum(['open', 'closed']), z.number()),
+      }),
+      run: () => ({}),
+    })
+
+    const output = Typegen.fromCli(cli)
+    expect(output).toContain('counts: Partial<Record<"open" | "closed", number>>')
+  })
+
+  test('required enum records render required keys', () => {
+    const cli = Cli.create('test').command('create', {
+      options: z.object({
+        counts: z.record(z.enum(['open', 'closed']), z.number()),
+      }),
+      run: () => ({}),
+    })
+
+    const output = Typegen.fromCli(cli)
+    expect(output).toContain('counts: Record<"open" | "closed", number>')
+  })
+
+  test('record with unknown property names falls back to string keys', () => {
+    const cli = Cli.create('test').command('create', {
+      options: z.object({
+        counts: z.record(z.any(), z.number()),
+      }),
+      run: () => ({}),
+    })
+
+    const output = Typegen.fromCli(cli)
+    expect(output).toContain('counts: Record<string, number>')
   })
 
   test('mixed top-level and grouped commands', () => {

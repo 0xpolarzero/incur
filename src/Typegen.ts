@@ -108,7 +108,7 @@ function resolveType(
 }
 
 function arrayToType(type: string): string {
-  return type.includes(' | ') ? `(${type})[]` : `${type}[]`
+  return type.includes(' | ') || type.includes(' & ') ? `(${type})[]` : `${type}[]`
 }
 
 function objectToType(
@@ -126,9 +126,75 @@ function objectToType(
   if (!additional) return object
   const value = typeof additional === 'object' ? resolveType(additional, defs) : 'unknown'
   const propertyNames = schema.propertyNames as Record<string, unknown> | undefined
-  const record = `Record<${propertyNames ? resolveType(propertyNames, defs) : 'string'}, ${value}>`
+  const key = recordKeyToType(propertyNames, defs)
+  const propertyValues = Object.entries(properties ?? {}).map(([key, value]) =>
+    propertyValueToType(key, value, required, defs),
+  )
+  const recordValue = unionTypes([value, ...propertyValues])
+  const record = recordToType(key, recordValue, propertyNames, required)
   if (entries.length === 0) return record
   return `${object} & ${record}`
+}
+
+function recordKeyToType(
+  schema: Record<string, unknown> | undefined,
+  defs: Record<string, Record<string, unknown>>,
+): string {
+  if (!schema) return 'string'
+  const type = resolveType(schema, defs)
+  if (type === 'unknown') return 'string'
+  return type
+}
+
+function recordToType(
+  key: string,
+  value: string,
+  propertyNames: Record<string, unknown> | undefined,
+  required: Set<string>,
+): string {
+  const record = `Record<${key}, ${value}>`
+  if (!propertyNames?.enum) return record
+
+  const keys = propertyNames.enum as unknown[]
+  if (keys.every((key) => typeof key === 'string' && required.has(key))) return record
+  return `Partial<${record}>`
+}
+
+function propertyValueToType(
+  key: string,
+  schema: Record<string, unknown>,
+  required: Set<string>,
+  defs: Record<string, Record<string, unknown>>,
+): string {
+  const type = resolveType(schema, defs)
+  if (required.has(key)) return type
+  return unionTypes([type, 'undefined'])
+}
+
+function unionTypes(types: string[]): string {
+  const entries = types.flatMap(splitUnionType)
+  if (entries.includes('unknown')) return 'unknown'
+  return [...new Set(entries)].join(' | ')
+}
+
+function splitUnionType(type: string): string[] {
+  const parts: string[] = []
+  let depth = 0
+  let start = 0
+
+  for (let i = 0; i < type.length; i++) {
+    const char = type[i]
+    if (char === '(' || char === '[' || char === '{' || char === '<') depth++
+    else if (char === ')' || char === ']' || char === '}' || char === '>') depth--
+    else if (depth === 0 && type.slice(i, i + 3) === ' | ') {
+      parts.push(type.slice(start, i))
+      start = i + 3
+      i += 2
+    }
+  }
+
+  parts.push(type.slice(start))
+  return parts
 }
 
 function propertyToType(
