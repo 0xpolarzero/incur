@@ -17,23 +17,14 @@ export function fromCli(cli: Cli.Cli): string {
 
   const entries = collectEntries(commands, [])
 
-  const lines: string[] = ['export type Commands = {']
+  const lines: string[] = ["declare module 'incur' {", '  interface Register {', '    commands: {']
 
-  for (const { name, args, options, output } of entries)
+  for (const { name, args, options } of entries)
     lines.push(
-      `  '${name}': { args: ${schemaToObjectType(args)}; options: ${schemaToObjectType(options)}; output: ${schemaToType(output)} }`,
+      `      '${name}': { args: ${schemaToType(args)}; options: ${schemaToType(options)} }`,
     )
 
-  lines.push(
-    '}',
-    '',
-    "declare module 'incur' {",
-    '  interface Register {',
-    '    commands: Commands',
-    '  }',
-    '}',
-    '',
-  )
+  lines.push('    }', '  }', '}', '')
   return lines.join('\n')
 }
 
@@ -41,38 +32,18 @@ export function fromCli(cli: Cli.Cli): string {
 function collectEntries(
   commands: Map<string, any>,
   prefix: string[],
-): {
-  name: string
-  args?: z.ZodObject<any> | undefined
-  options?: z.ZodObject<any> | undefined
-  output?: z.ZodType | undefined
-}[] {
+): { name: string; args?: z.ZodObject<any>; options?: z.ZodObject<any> }[] {
   const result: ReturnType<typeof collectEntries> = []
   for (const [name, entry] of commands) {
     const path = [...prefix, name]
-    if ('_alias' in entry || '_fetch' in entry) continue
     if ('_group' in entry && entry._group) result.push(...collectEntries(entry.commands, path))
-    else
-      result.push({
-        name: path.join(' '),
-        args: entry.args,
-        options: entry.options,
-        output: entry.output,
-      })
+    else result.push({ name: path.join(' '), args: entry.args, options: entry.options })
   }
   return result.sort((a, b) => a.name.localeCompare(b.name))
 }
 
-/** Converts a Zod output schema to a TypeScript type string. Returns `{}` for undefined schemas. */
-function schemaToType(schema: z.ZodType | undefined): string {
-  if (!schema) return '{}'
-  const json = z.toJSONSchema(schema) as Record<string, unknown>
-  const defs = (json.$defs ?? {}) as Record<string, Record<string, unknown>>
-  return resolveType(json, defs)
-}
-
-/** Converts a Zod object schema to a TypeScript type string. Returns `{}` for undefined or empty schemas. */
-function schemaToObjectType(schema: z.ZodObject<any> | undefined): string {
+/** Converts a Zod object schema to a TypeScript type string. Returns `{}` for undefined schemas. */
+function schemaToType(schema: z.ZodObject<any> | undefined): string {
   if (!schema) return '{}'
   const json = z.toJSONSchema(schema) as Record<string, unknown>
   const defs = (json.$defs ?? {}) as Record<string, Record<string, unknown>>

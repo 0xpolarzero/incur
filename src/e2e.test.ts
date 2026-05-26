@@ -1601,35 +1601,34 @@ describe('--llms', () => {
 describe('typegen', () => {
   test('generates correct .d.ts for entire CLI', () => {
     expect(Typegen.fromCli(createApp())).toMatchInlineSnapshot(`
-      "export type Commands = {
-        'auth login': { args: {}; options: { hostname: string; web: boolean; scopes: string[] }; output: {} }
-        'auth logout': { args: {}; options: {}; output: {} }
-        'auth status': { args: {}; options: {}; output: { loggedIn: boolean; hostname: string; user: string } }
-        'config': { args: { key?: string }; options: {}; output: {} }
-        'echo': { args: { message: string; repeat?: number }; options: { upper: boolean; prefix: string }; output: {} }
-        'explode': { args: {}; options: {}; output: {} }
-        'explode-clac': { args: {}; options: {}; output: {} }
-        'noop': { args: {}; options: {}; output: {} }
-        'ping': { args: {}; options: {}; output: {} }
-        'project create': { args: { name: string }; options: { description: string; private: boolean }; output: { id: string; url: string } }
-        'project delete': { args: { id: string }; options: { force: boolean }; output: {} }
-        'project deploy create': { args: { env: string }; options: { branch: string; dryRun: boolean }; output: { deployId: string; url: string; status: string } }
-        'project deploy rollback': { args: { deployId: string }; options: {}; output: {} }
-        'project deploy status': { args: { deployId: string }; options: {}; output: { deployId: string; status: string; progress: number } }
-        'project get': { args: { id: string }; options: {}; output: { id: string; name: string; description: string; members: { userId: string; role: string }[] } }
-        'project list': { args: {}; options: { limit: number; sort: "name" | "created" | "updated"; archived: boolean }; output: { items: { id: string; name: string; archived: boolean }[]; total: number } }
-        'slow': { args: {}; options: {}; output: {} }
-        'stream': { args: {}; options: {}; output: {} }
-        'stream-error': { args: {}; options: {}; output: {} }
-        'stream-ok': { args: {}; options: {}; output: {} }
-        'stream-text': { args: {}; options: {}; output: {} }
-        'stream-throw': { args: {}; options: {}; output: {} }
-        'validate-fail': { args: { email: string; age: number }; options: {}; output: {} }
-      }
-
-      declare module 'incur' {
+      "declare module 'incur' {
         interface Register {
-          commands: Commands
+          commands: {
+            'api': { args: {}; options: {} }
+            'auth login': { args: {}; options: { hostname: string; web: boolean; scopes: string[] } }
+            'auth logout': { args: {}; options: {} }
+            'auth status': { args: {}; options: {} }
+            'config': { args: { key?: string }; options: {} }
+            'echo': { args: { message: string; repeat?: number }; options: { upper: boolean; prefix: string } }
+            'explode': { args: {}; options: {} }
+            'explode-clac': { args: {}; options: {} }
+            'noop': { args: {}; options: {} }
+            'ping': { args: {}; options: {} }
+            'project create': { args: { name: string }; options: { description: string; private: boolean } }
+            'project delete': { args: { id: string }; options: { force: boolean } }
+            'project deploy create': { args: { env: string }; options: { branch: string; dryRun: boolean } }
+            'project deploy rollback': { args: { deployId: string }; options: {} }
+            'project deploy status': { args: { deployId: string }; options: {} }
+            'project get': { args: { id: string }; options: {} }
+            'project list': { args: {}; options: { limit: number; sort: "name" | "created" | "updated"; archived: boolean } }
+            'slow': { args: {}; options: {} }
+            'stream': { args: {}; options: {} }
+            'stream-error': { args: {}; options: {} }
+            'stream-ok': { args: {}; options: {} }
+            'stream-text': { args: {}; options: {} }
+            'stream-throw': { args: {}; options: {} }
+            'validate-fail': { args: { email: string; age: number }; options: {} }
+          }
         }
       }
       "
