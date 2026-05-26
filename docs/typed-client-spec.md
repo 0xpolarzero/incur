@@ -144,7 +144,6 @@ type ClientBase<transport extends Transport, defaults extends ClientDefaults> = 
   defaults: defaults
   transport: ResolvedTransport<transport>
   type: 'client'
-  uid: string
 }
 ```
 
@@ -267,10 +266,6 @@ type Transport = HttpTransport | MemoryTransport
 
 type TransportType = 'http' | 'memory'
 
-type TransportContext = {
-  uid: string
-}
-
 type TransportConfig<type extends TransportType> = {
   key: string
   name: string
@@ -282,7 +277,7 @@ type TransportCapabilities = Record<string, unknown>
 type TransportFactory<
   type extends TransportType,
   capabilities extends TransportCapabilities,
-> = (context: TransportContext) => { config: TransportConfig<type> } & capabilities
+> = () => { config: TransportConfig<type> } & capabilities
 ```
 
 Resolved transport:

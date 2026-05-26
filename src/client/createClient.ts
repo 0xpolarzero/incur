@@ -22,14 +22,12 @@ export function createClient<
   const defaults extends ClientDefaults = {},
 >(options: CreateClientOptions<transport, defaults>): Client<commands, transport, defaults> {
   const { transport, ...defaults } = options
-  const uid = uidValue()
-  const resolved = transport({ uid })
+  const resolved = transport()
   const { config, ...capabilities } = resolved
   const client = {
     defaults,
     transport: { ...config, ...capabilities },
     type: 'client',
-    uid,
   } as unknown as Client<commands, transport, defaults>
 
   return attachActions(client) as Client<commands, transport, defaults>
@@ -132,9 +130,4 @@ function attachActions<const client extends object>(client: client): client {
   }
 
   return client
-}
-
-function uidValue() {
-  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
-  return `client_${Math.random().toString(36).slice(2)}`
 }

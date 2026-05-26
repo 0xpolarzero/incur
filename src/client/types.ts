@@ -78,8 +78,6 @@ export type ClientBase<transport extends Transport, defaults extends ClientDefau
   transport: ResolvedTransport<transport>
   /** Client discriminator. */
   type: 'client'
-  /** Unique client id. */
-  uid: string
 }
 
 /** Typed client instance. */

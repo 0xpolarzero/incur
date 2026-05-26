@@ -11,14 +11,14 @@ import { createClient, createHttpClient, createMemoryClient } from './createClie
 import * as HttpTransport from './transports/HttpTransport.js'
 
 function mockTransport(): HttpTransport.HttpTransport {
-  return (ctx) => ({
+  return () => ({
     config: { key: 'mock', name: 'Mock', type: 'http' as const },
     baseUrl: new URL('https://example.com'),
     discover: vi.fn(),
     request: vi.fn(
       async (_request: RpcRequest): Promise<RpcResponse | RpcStreamResponse> => ({
         ok: true,
-        data: { uid: ctx.uid },
+        data: { ok: true },
         meta: { command: 'status', duration: '1ms' },
       }),
     ),
@@ -37,10 +37,9 @@ describe('createClient', () => {
       transport: { key: 'mock', name: 'Mock', type: 'http' },
       type: 'client',
     })
-    expect(client.uid).toEqual(expect.any(String))
     await expect(client.run('status' as never)).resolves.toMatchObject({
       ok: true,
-      data: { uid: client.uid },
+      data: { ok: true },
     })
   })
 
