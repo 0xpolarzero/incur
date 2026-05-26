@@ -248,6 +248,48 @@ describe('fromCli', () => {
     expect(output).toContain('output: string')
   })
 
+  test('invalid property keys are quoted', () => {
+    const cli = Cli.create('test').command('create', {
+      options: z.object({
+        'dry-run': z.boolean(),
+        nested: z.object({ 'output-file': z.string().optional() }),
+      }),
+      run: () => ({}),
+    })
+
+    const output = Typegen.fromCli(cli)
+    expect(output).toContain('"dry-run": boolean')
+    expect(output).toContain('nested: { "output-file"?: string | undefined }')
+  })
+
+  test('tuple schemas render as TypeScript tuples', () => {
+    const cli = Cli.create('test').command('create', {
+      options: z.object({
+        point: z.tuple([z.number(), z.number()]),
+        range: z.tuple([z.string()]).rest(z.number()),
+      }),
+      run: () => ({}),
+    })
+
+    const output = Typegen.fromCli(cli)
+    expect(output).toContain('point: [number, number]')
+    expect(output).toContain('range: [string, ...number[]]')
+  })
+
+  test('record and catchall schemas render indexable types', () => {
+    const cli = Cli.create('test').command('create', {
+      options: z.object({
+        counts: z.record(z.string(), z.number()),
+        flags: z.object({ required: z.boolean() }).catchall(z.string()),
+      }),
+      run: () => ({}),
+    })
+
+    const output = Typegen.fromCli(cli)
+    expect(output).toContain('counts: Record<string, number>')
+    expect(output).toContain('flags: { required: boolean } & Record<string, string>')
+  })
+
   test('mixed top-level and grouped commands', () => {
     const cli = Cli.create('test')
     cli.command('ping', { run: () => ({}) })

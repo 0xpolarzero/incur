@@ -88,28 +88,63 @@ function resolveType(
     case 'null':
       return 'null'
     case 'array': {
+      const prefixItems = schema.prefixItems as Record<string, unknown>[] | undefined
+      if (prefixItems) {
+        const items = prefixItems.map((item) => resolveType(item, defs))
+        const rest = schema.items as Record<string, unknown> | undefined
+        if (rest) items.push(`...${arrayToType(resolveType(rest, defs))}`)
+        return `[${items.join(', ')}]`
+      }
+
       const items = schema.items as Record<string, unknown> | undefined
       const itemType = items ? resolveType(items, defs) : 'unknown'
-      return itemType.includes(' | ') ? `(${itemType})[]` : `${itemType}[]`
+      return arrayToType(itemType)
     }
-    case 'object': {
-      const properties = schema.properties as Record<string, Record<string, unknown>> | undefined
-      if (!properties || Object.keys(properties).length === 0) return '{}'
-      const required = new Set((schema.required as string[] | undefined) ?? [])
-      const entries = Object.entries(properties).map(([key, value]) => {
-        const type = resolveType(value, defs)
-        if (required.has(key)) return `${propertyKey(key)}: ${type}`
-        return `${propertyKey(key)}?: ${type} | undefined`
-      })
-      return `{ ${entries.join('; ')} }`
-    }
+    case 'object':
+      return objectToType(schema, defs)
     default:
       return 'unknown'
   }
 }
 
-function propertyKey(key: string) {
-  return /^[A-Za-z_$][\w$]*$/.test(key) ? key : JSON.stringify(key)
+function arrayToType(type: string): string {
+  return type.includes(' | ') ? `(${type})[]` : `${type}[]`
+}
+
+function objectToType(
+  schema: Record<string, unknown>,
+  defs: Record<string, Record<string, unknown>>,
+): string {
+  const properties = schema.properties as Record<string, Record<string, unknown>> | undefined
+  const required = new Set((schema.required as string[] | undefined) ?? [])
+  const entries = Object.entries(properties ?? {}).map(([key, value]) =>
+    propertyToType(key, value, required, defs),
+  )
+  const object = entries.length > 0 ? `{ ${entries.join('; ')} }` : '{}'
+  const additional = schema.additionalProperties as Record<string, unknown> | boolean | undefined
+
+  if (!additional) return object
+  const value = typeof additional === 'object' ? resolveType(additional, defs) : 'unknown'
+  const propertyNames = schema.propertyNames as Record<string, unknown> | undefined
+  const record = `Record<${propertyNames ? resolveType(propertyNames, defs) : 'string'}, ${value}>`
+  if (entries.length === 0) return record
+  return `${object} & ${record}`
+}
+
+function propertyToType(
+  key: string,
+  schema: Record<string, unknown>,
+  required: Set<string>,
+  defs: Record<string, Record<string, unknown>>,
+): string {
+  const type = resolveType(schema, defs)
+  if (required.has(key)) return `${propertyKey(key)}: ${type}`
+  return `${propertyKey(key)}?: ${type} | undefined`
+}
+
+function propertyKey(key: string): string {
+  if (/^[$A-Z_a-z][$\w]*$/.test(key)) return key
+  return JSON.stringify(key)
 }
 
 function isStream(command: Cli.CommandDefinition<any, any, any, any, any, any>) {
