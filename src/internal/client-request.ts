@@ -5,8 +5,8 @@ import type * as ClientRequest from '../client/Request.js'
 import type { FieldError } from '../Errors.js'
 import * as Filter from '../Filter.js'
 import * as Formatter from '../Formatter.js'
-import * as RuntimeContext from './runtime-context.js'
 import * as Command from './command.js'
+import * as RuntimeContext from './runtime-context.js'
 
 const requestSchema = z.object({
   command: z.string().transform((value) => value.trim().replace(/\s+/g, ' ')),

@@ -27,19 +27,21 @@ export type Config = {
 }
 
 /** Inferred command map for operation commands generated from a literal OpenAPI spec. */
-export type Commands<name extends string, spec extends OpenAPISource | undefined> =
-  spec extends OpenAPISpec
-    ? {
-        [path in keyof NonNullable<spec['paths']> & string as OperationCommandName<
-          name,
-          NonNullable<spec['paths']>[path]
-        >]: {
-          args: Record<string, unknown>
-          options: Record<string, unknown>
-          output: unknown
-        }
+export type Commands<
+  name extends string,
+  spec extends OpenAPISource | undefined,
+> = spec extends OpenAPISpec
+  ? {
+      [path in keyof NonNullable<spec['paths']> & string as OperationCommandName<
+        name,
+        NonNullable<spec['paths']>[path]
+      >]: {
+        args: Record<string, unknown>
+        options: Record<string, unknown>
+        output: unknown
       }
-    : {}
+    }
+  : {}
 
 type OperationCommandName<name extends string, item> = item extends object
   ? {
@@ -374,6 +376,15 @@ export async function generateCommands(
   fetch: FetchHandler,
   options: generateCommands.Options = {},
 ): Promise<Map<string, GeneratedEntry>> {
+  return generateCommandsSync(spec, fetch, options)
+}
+
+/** Synchronously generates incur command entries from an already-loaded OpenAPI spec. */
+export function generateCommandsSync(
+  spec: OpenAPISpec,
+  fetch: FetchHandler,
+  options: generateCommands.Options = {},
+): Map<string, GeneratedEntry> {
   const resolved = dereference(structuredClone(spec)) as OpenAPISpec
   const commands = new Map<string, GeneratedEntry>()
   const paths = (resolved.paths ?? {}) as Record<string, Record<string, unknown>>

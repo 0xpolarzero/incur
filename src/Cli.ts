@@ -220,15 +220,22 @@ export function create(
   const mcpHandler = createMcpHttpHandler(name, def.version ?? '0.0.0')
 
   if (def.openapi && rootFetch) {
-    pending.push(
-      (async () => {
-        const spec = await Openapi.resolve(def.openapi, { baseUrl: rootFetchBaseUrl })
-        const generated = await Openapi.generateCommands(spec, rootFetch, {
-          config: def.openapiConfig,
-        })
-        for (const [name, command] of generated) commands.set(name, command)
-      })(),
-    )
+    if (isResolvedOpenapi(def.openapi)) {
+      const generated = Openapi.generateCommandsSync(def.openapi, rootFetch, {
+        config: def.openapiConfig,
+      })
+      for (const [name, command] of generated) commands.set(name, command)
+    } else {
+      pending.push(
+        (async () => {
+          const spec = await Openapi.resolve(def.openapi, { baseUrl: rootFetchBaseUrl })
+          const generated = await Openapi.generateCommands(spec, rootFetch, {
+            config: def.openapiConfig,
+          })
+          for (const [name, command] of generated) commands.set(name, command)
+        })(),
+      )
+    }
   }
 
   const cli: Cli = {
@@ -243,23 +250,35 @@ export function create(
           const fetch = resolveFetch(def.fetch)
           // OpenAPI + fetch → generate typed command group (async, resolved before serve)
           if (def.openapi) {
-            pending.push(
-              (async () => {
-                const spec = await Openapi.resolve(def.openapi, {
-                  baseUrl: fetchBaseUrl(def.fetch),
-                })
-                const generated = await Openapi.generateCommands(spec, fetch, {
+            const setOpenapiGroup = (generated: Map<string, unknown>) => {
+              commands.set(nameOrCli, {
+                _group: true,
+                description: def.description,
+                commands: generated as Map<string, CommandEntry>,
+                ...(def.outputPolicy ? { outputPolicy: def.outputPolicy } : undefined),
+              } as InternalGroup)
+            }
+            if (isResolvedOpenapi(def.openapi)) {
+              setOpenapiGroup(
+                Openapi.generateCommandsSync(def.openapi, fetch, {
                   basePath: def.basePath,
                   config: def.openapiConfig,
-                })
-                commands.set(nameOrCli, {
-                  _group: true,
-                  description: def.description,
-                  commands: generated as Map<string, CommandEntry>,
-                  ...(def.outputPolicy ? { outputPolicy: def.outputPolicy } : undefined),
-                } as InternalGroup)
-              })(),
-            )
+                }),
+              )
+            } else
+              pending.push(
+                (async () => {
+                  const spec = await Openapi.resolve(def.openapi, {
+                    baseUrl: fetchBaseUrl(def.fetch),
+                  })
+                  setOpenapiGroup(
+                    await Openapi.generateCommands(spec, fetch, {
+                      basePath: def.basePath,
+                      config: def.openapiConfig,
+                    }),
+                  )
+                })(),
+              )
             return cli
           }
           commands.set(nameOrCli, {
@@ -342,7 +361,10 @@ export function create(
   if (rootDef && def.aliases) toRootAliases.set(cli as unknown as Root, def.aliases)
   if (def.options) toRootOptions.set(cli, def.options)
   if (def.config !== undefined) toConfigEnabled.set(cli, true)
+  if (def.mcp) toMcpOptions.set(cli, def.mcp)
   if (def.outputPolicy) toOutputPolicy.set(cli, def.outputPolicy)
+  if (def.sync) toSyncOptions.set(cli, def.sync)
+  if (def.version !== undefined) toVersion.set(cli, def.version)
   toMiddlewares.set(cli, middlewares)
   toCommands.set(cli, commands)
   return cli
@@ -2644,6 +2666,10 @@ function resolveFetch(source: FetchSource): FetchHandler {
 
 function fetchBaseUrl(source: FetchSource) {
   return typeof source === 'function' ? undefined : source.url
+}
+
+function isResolvedOpenapi(source: Openapi.OpenAPISource): source is Openapi.OpenAPISpec {
+  return typeof source !== 'string' && !(source instanceof URL)
 }
 
 /** @internal Type guard for command groups. */
