@@ -2966,11 +2966,11 @@ function collectCommands(
 }
 
 /** @internal Recursively collects leaf commands as `Skill.CommandInfo` for `--llms --format md`. */
-function collectSkillCommands(
+export function collectSkillCommands(
   commands: Map<string, CommandEntry>,
   prefix: string[],
   groups: Map<string, string>,
-  rootCommand?: CommandDefinition<any, any, any> | undefined,
+  rootCommand?: SkillCommandSource | undefined,
 ): Skill.CommandInfo[] {
   const result: Skill.CommandInfo[] = []
   if (rootCommand) {
@@ -3018,6 +3018,11 @@ function collectSkillCommands(
   return result.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
 }
 
+type SkillCommandSource = Pick<
+  CommandDefinition<any, any, any, any, any, any>,
+  'args' | 'description' | 'env' | 'examples' | 'hint' | 'options' | 'output'
+>
+
 /** @internal Formats examples into `{ command, description }` objects. `command` is the args/options suffix only. */
 export function formatExamples(
   examples: Example<any, any>[] | undefined,
@@ -3032,6 +3037,18 @@ export function formatExamples(
     if (ex.description) result.description = ex.description
     return result
   })
+}
+
+/** @internal Parses YAML frontmatter from generated skill Markdown. */
+export function parseSkillFrontmatter(content: string): {
+  description?: string | undefined
+  name?: string | undefined
+} {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  if (!match) return {}
+  const meta = yamlParse(match[1]!)
+  if (!meta || typeof meta !== 'object') return {}
+  return meta as { description?: string | undefined; name?: string | undefined }
 }
 
 /** @internal Builds separate args, env, and options JSON Schemas. */
