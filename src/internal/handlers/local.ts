@@ -1,16 +1,16 @@
-import type * as Local from '../client/Local.js'
-import { BaseError } from '../Errors.js'
-import * as SyncMcp from '../SyncMcp.js'
-import * as SyncSkills from '../SyncSkills.js'
-import type * as RuntimeContext from './runtime-context.js'
+import type * as Local from '../../client/Local.js'
+import { BaseError } from '../../Errors.js'
+import * as SyncMcp from '../../SyncMcp.js'
+import * as SyncSkills from '../../SyncSkills.js'
+import type * as RuntimeContext from '../runtime-context.js'
 
 /** Local setup/admin failure. */
 export class LocalError extends BaseError {
   override name = 'Incur.LocalError'
 }
 
-/** Creates local setup/admin wrappers for a memory transport. */
-export function createClientLocal(ctx: RuntimeContext.RuntimeCliContext) {
+/** Creates the shared in-process local handler. */
+export function createLocalHandler(ctx: RuntimeContext.RuntimeCliContext) {
   return {
     local: {
       skills: {

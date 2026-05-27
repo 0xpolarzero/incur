@@ -1,7 +1,7 @@
 import * as Cli from '../../Cli.js'
-import { createClientDiscover } from '../../internal/client-discover.js'
-import { createClientLocal } from '../../internal/client-local.js'
-import { createClientRequest } from '../../internal/client-request.js'
+import { createLocalHandler } from '../../internal/handlers/local.js'
+import { createResourcesHandler } from '../../internal/handlers/resources.js'
+import { createRpcHandler } from '../../internal/handlers/rpc.js'
 import * as RuntimeContext from '../../internal/runtime-context.js'
 import { ClientError } from '../ClientError.js'
 import type * as Local from '../Local.js'
@@ -15,7 +15,7 @@ export type MemoryTransport = Transport.Factory<
   {
     request(request: Rpc.Request): Promise<Rpc.Response | Rpc.StreamResponse>
     discover(request: Resources.Request): Promise<Resources.Response>
-    local: Local.Runtime
+    local: Local.Handler
   }
 >
 
@@ -29,9 +29,9 @@ export type Options = {
 export function create(cli: Cli.Cli<any, any, any>, options: Options = {}): MemoryTransport {
   return () => {
     const ctx = RuntimeContext.fromCli(cli)
-    const { request } = createClientRequest(ctx, { env: options.env })
-    const { discover } = createClientDiscover(ctx)
-    const { local } = createClientLocal(ctx)
+    const { request } = createRpcHandler(ctx, { env: options.env })
+    const { discover } = createResourcesHandler(ctx)
+    const { local } = createLocalHandler(ctx)
     return {
       config: { key: 'memory', name: 'Memory', type: 'memory' },
       request,

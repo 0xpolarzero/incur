@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'vitest'
 import { z } from 'zod'
 
-import * as Cli from '../Cli.js'
-import * as Formatter from '../Formatter.js'
-import { createClientRequest } from './client-request.js'
-import * as RuntimeContext from './runtime-context.js'
+import * as Cli from '../../Cli.js'
+import * as Formatter from '../../Formatter.js'
+import * as RuntimeContext from '../runtime-context.js'
+import { createRpcHandler } from './rpc.js'
 
 function createFixture() {
   const order: string[] = []
@@ -76,26 +76,26 @@ function createFixture() {
   return { cli, order, ctx: RuntimeContext.fromCli(cli) }
 }
 
-describe('createClientRequest', () => {
+describe('createRpcHandler', () => {
   test('executes root, mounted root, and mounted router commands by canonical ID', async () => {
     const { ctx, order } = createFixture()
 
     await expect(
-      createClientRequest(ctx, { env: { API_KEY: 'k' } }).request({
+      createRpcHandler(ctx, { env: { API_KEY: 'k' } }).request({
         command: ' root ',
         args: {},
         options: {},
       }),
     ).resolves.toMatchObject({ ok: true, data: { root: true }, meta: { command: 'root' } })
     await expect(
-      createClientRequest(ctx, { env: { API_KEY: 'k', TOKEN: 't' } }).request({
+      createRpcHandler(ctx, { env: { API_KEY: 'k', TOKEN: 't' } }).request({
         command: 'child',
         args: { id: 'c1' },
         options: { loud: true },
       }),
     ).resolves.toMatchObject({ ok: true, data: { id: 'c1', loud: true } })
     await expect(
-      createClientRequest(ctx, { env: { API_KEY: 'k' } }).request({
+      createRpcHandler(ctx, { env: { API_KEY: 'k' } }).request({
         command: 'project list',
         args: { projectId: 'p1' },
         options: { limit: 1 },
@@ -122,7 +122,7 @@ describe('createClientRequest', () => {
 
   test('rejects invalid RPC shape, unknown commands, groups, aliases, and raw fetch gateways', async () => {
     const { ctx } = createFixture()
-    const { request } = createClientRequest(ctx)
+    const { request } = createRpcHandler(ctx)
     await expect(request({ command: '' })).resolves.toMatchObject({
       ok: false,
       error: { code: 'INVALID_RPC_REQUEST' },
@@ -148,28 +148,28 @@ describe('createClientRequest', () => {
   test('validates structured args, options, CLI env, and command env independently', async () => {
     const { ctx } = createFixture()
     await expect(
-      createClientRequest(ctx, { env: { API_KEY: 'k' } }).request({
+      createRpcHandler(ctx, { env: { API_KEY: 'k' } }).request({
         command: 'project list',
         args: {},
         options: { limit: 1 },
       }),
     ).resolves.toMatchObject({ ok: false, error: { code: 'VALIDATION_ERROR' } })
     await expect(
-      createClientRequest(ctx, { env: { API_KEY: 'k' } }).request({
+      createRpcHandler(ctx, { env: { API_KEY: 'k' } }).request({
         command: 'project list',
         args: { projectId: 'p' },
         options: { limit: 'bad' },
       }),
     ).resolves.toMatchObject({ ok: false, error: { code: 'VALIDATION_ERROR' } })
     await expect(
-      createClientRequest(ctx).request({
+      createRpcHandler(ctx).request({
         command: 'project list',
         args: { projectId: 'p' },
         options: {},
       }),
     ).resolves.toMatchObject({ ok: false, error: { code: 'VALIDATION_ERROR' } })
     await expect(
-      createClientRequest(ctx, { env: { API_KEY: 'k' } }).request({
+      createRpcHandler(ctx, { env: { API_KEY: 'k' } }).request({
         command: 'child',
         args: { id: 'c' },
         options: {},
@@ -179,7 +179,7 @@ describe('createClientRequest', () => {
 
   test('applies selection, formatting, token metadata, and CTA metadata', async () => {
     const { ctx } = createFixture()
-    const response = await createClientRequest(ctx, { env: { API_KEY: 'k' } }).request({
+    const response = await createRpcHandler(ctx, { env: { API_KEY: 'k' } }).request({
       command: 'project list',
       args: { projectId: 'p1' },
       options: {},
@@ -210,12 +210,12 @@ describe('createClientRequest', () => {
   test('rejects empty selections and omits token count unless requested', async () => {
     const { ctx } = createFixture()
     await expect(
-      createClientRequest(ctx).request({ command: 'project list', selection: [] }),
+      createRpcHandler(ctx).request({ command: 'project list', selection: [] }),
     ).resolves.toMatchObject({
       ok: false,
       error: { code: 'INVALID_RPC_REQUEST' },
     })
-    const response = await createClientRequest(ctx, { env: { API_KEY: 'k' } }).request({
+    const response = await createRpcHandler(ctx, { env: { API_KEY: 'k' } }).request({
       command: 'project list',
       args: { projectId: 'p1' },
       options: {},
@@ -228,7 +228,7 @@ describe('createClientRequest', () => {
     expect(response.output).not.toHaveProperty('tokenOffset')
     expect(response.output).not.toHaveProperty('nextOffset')
 
-    const counted = await createClientRequest(ctx, { env: { API_KEY: 'k' } }).request({
+    const counted = await createRpcHandler(ctx, { env: { API_KEY: 'k' } }).request({
       command: 'project list',
       args: { projectId: 'p1' },
       options: {},
@@ -247,7 +247,7 @@ describe('createClientRequest', () => {
 
   test('keeps token metadata on output for non-truncated and offset-only requests', async () => {
     const { ctx } = createFixture()
-    const request = createClientRequest(ctx, { env: { API_KEY: 'k' } }).request
+    const request = createRpcHandler(ctx, { env: { API_KEY: 'k' } }).request
     const limited = await request({
       command: 'project list',
       args: { projectId: 'p1' },
@@ -288,7 +288,7 @@ describe('createClientRequest', () => {
 
   test('streams chunks, terminal metadata, terminal errors, and cancellation', async () => {
     const { ctx, order } = createFixture()
-    const { request } = createClientRequest(ctx, { env: { API_KEY: 'k' } })
+    const { request } = createRpcHandler(ctx, { env: { API_KEY: 'k' } })
     const response = await request({
       command: 'project stream',
       outputTokenCount: true,

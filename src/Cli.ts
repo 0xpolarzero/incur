@@ -12,8 +12,6 @@ import * as Fetch from './Fetch.js'
 import * as Filter from './Filter.js'
 import * as Formatter from './Formatter.js'
 import * as Help from './Help.js'
-import { createClientDiscover, DiscoverError } from './internal/client-discover.js'
-import { createClientRequest, getClientRequestStatus } from './internal/client-request.js'
 import {
   builtinCommands,
   type CommandMeta,
@@ -23,6 +21,8 @@ import {
   shells,
 } from './internal/command.js'
 import * as Command from './internal/command.js'
+import { createResourcesHandler, ResourcesError } from './internal/handlers/resources.js'
+import { createRpcHandler, getRpcStatus } from './internal/handlers/rpc.js'
 import { isRecord, suggest, toKebab } from './internal/helpers.js'
 import { detectRunner } from './internal/pm.js'
 import * as RuntimeContext from './internal/runtime-context.js'
@@ -1713,7 +1713,7 @@ async function fetchImpl(
     }
 
     if (segments[1] === 'rpc' && segments.length === 2 && req.method === 'POST') {
-      const client = createClientRequest(ctx)
+      const client = createRpcHandler(ctx)
       let body: unknown
       try {
         body = await req.json()
@@ -1747,7 +1747,7 @@ async function fetchImpl(
         })
       }
       return new Response(JSON.stringify(response), {
-        status: response.ok ? 200 : getClientRequestStatus(response.error.code),
+        status: response.ok ? 200 : getRpcStatus(response.error.code),
         headers: { 'content-type': 'application/json' },
       })
     }
@@ -1766,7 +1766,7 @@ async function fetchImpl(
       })()
       if (resource) {
         try {
-          const client = createClientDiscover(ctx)
+          const client = createResourcesHandler(ctx)
           const discovery = await client.discover({
             resource,
             ...(url.searchParams.get('command')
@@ -1785,8 +1785,8 @@ async function fetchImpl(
             },
           )
         } catch (error) {
-          const status = error instanceof DiscoverError ? error.status : 500
-          const code = error instanceof DiscoverError ? error.code : 'DISCOVERY_ERROR'
+          const status = error instanceof ResourcesError ? error.status : 500
+          const code = error instanceof ResourcesError ? error.code : 'DISCOVERY_ERROR'
           return new Response(
             JSON.stringify({
               ok: false,

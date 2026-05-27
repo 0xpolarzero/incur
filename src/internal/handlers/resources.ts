@@ -1,19 +1,19 @@
 import { stringify as yamlStringify } from 'yaml'
 import { z } from 'zod'
 
-import * as Cli from '../Cli.js'
-import type * as Resources from '../client/Resources.js'
-import { BaseError } from '../Errors.js'
-import * as Formatter from '../Formatter.js'
-import * as Help from '../Help.js'
-import * as Mcp from '../Mcp.js'
-import * as Openapi from '../Openapi.js'
-import * as Skill from '../Skill.js'
-import * as RuntimeContext from './runtime-context.js'
+import * as Cli from '../../Cli.js'
+import type * as Resources from '../../client/Resources.js'
+import { BaseError } from '../../Errors.js'
+import * as Formatter from '../../Formatter.js'
+import * as Help from '../../Help.js'
+import * as Mcp from '../../Mcp.js'
+import * as Openapi from '../../Openapi.js'
+import * as Skill from '../../Skill.js'
+import * as RuntimeContext from '../runtime-context.js'
 
-/** Discover failure with protocol code and HTTP status metadata. */
-export class DiscoverError extends BaseError {
-  override name = 'Incur.DiscoverError'
+/** Resources failure with protocol code and HTTP status metadata. */
+export class ResourcesError extends BaseError {
+  override name = 'Incur.ResourcesError'
   /** Machine-readable error code. */
   code: string
   /** HTTP status for discovery routes. */
@@ -45,13 +45,13 @@ const requestSchema = z.discriminatedUnion('resource', [
   z.object({ resource: z.literal('mcpTools') }),
 ])
 
-/** Creates the shared client discovery executor. */
-export function createClientDiscover(ctx: RuntimeContext.RuntimeCliContext) {
+/** Creates the shared in-process resources handler. */
+export function createResourcesHandler(ctx: RuntimeContext.RuntimeCliContext) {
   return {
     async discover(request: unknown): Promise<Resources.Response> {
       const parsedRequest = requestSchema.safeParse(request)
       if (!parsedRequest.success)
-        throw new DiscoverError('VALIDATION_ERROR', 'Invalid discovery request.', 400)
+        throw new ResourcesError('VALIDATION_ERROR', 'Invalid discovery request.', 400)
       const parsed = parsedRequest.data
       if (parsed.resource === 'openapi') {
         const spec = openapi(ctx)
@@ -83,10 +83,10 @@ export function createClientDiscover(ctx: RuntimeContext.RuntimeCliContext) {
           }
         }
         if (!safeSkillName(parsed.name))
-          throw new DiscoverError('INVALID_SKILL_NAME', 'Unsafe skill name.', 400)
+          throw new ResourcesError('INVALID_SKILL_NAME', 'Unsafe skill name.', 400)
         const file = files.find((value) => (value.dir || ctx.name) === parsed.name)
         if (!file)
-          throw new DiscoverError('SKILL_NOT_FOUND', `Unknown skill '${parsed.name}'.`, 404)
+          throw new ResourcesError('SKILL_NOT_FOUND', `Unknown skill '${parsed.name}'.`, 404)
         return { contentType: 'text/markdown', body: file.content }
       }
 
@@ -171,9 +171,9 @@ function scope(ctx: RuntimeContext.RuntimeCliContext, command: string | undefine
     }
   const resolved = RuntimeContext.resolveCanonical(ctx, command)
   if ('error' in resolved)
-    throw new DiscoverError('COMMAND_NOT_FOUND', `Unknown command '${command}'.`, 404)
+    throw new ResourcesError('COMMAND_NOT_FOUND', `Unknown command '${command}'.`, 404)
   if ('gateway' in resolved)
-    throw new DiscoverError('FETCH_GATEWAY', `'${command}' is a raw fetch gateway.`, 400)
+    throw new ResourcesError('FETCH_GATEWAY', `'${command}' is a raw fetch gateway.`, 400)
   if ('commands' in resolved)
     return {
       type: 'group' as const,

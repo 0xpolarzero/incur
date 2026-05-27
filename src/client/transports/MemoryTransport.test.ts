@@ -3,7 +3,7 @@ import { parse as yamlParse } from 'yaml'
 import { z } from 'zod'
 
 import * as Cli from '../../Cli.js'
-import { DiscoverError } from '../../internal/client-discover.js'
+import { ResourcesError } from '../../internal/handlers/resources.js'
 import { ClientError } from '../ClientError.js'
 import type * as Resources from '../Resources.js'
 import * as MemoryTransport from './MemoryTransport.js'
@@ -405,7 +405,7 @@ describe('MemoryTransport', () => {
     const transport = MemoryTransport.create(cli)()
 
     await expect(transport.discover({ resource: 'skill', name: 'missing' })).rejects.toMatchObject({
-      cause: expect.any(DiscoverError),
+      cause: expect.any(ResourcesError),
       code: 'SKILL_NOT_FOUND',
       message: expect.stringContaining('Discover request failed.'),
       status: 404,

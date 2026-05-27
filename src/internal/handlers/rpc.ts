@@ -1,12 +1,12 @@
 import { estimateTokenCount, sliceByTokens } from 'tokenx'
 import { z } from 'zod'
 
-import type * as Rpc from '../client/Rpc.js'
-import type { FieldError } from '../Errors.js'
-import * as Filter from '../Filter.js'
-import * as Formatter from '../Formatter.js'
-import * as Command from './command.js'
-import * as RuntimeContext from './runtime-context.js'
+import type * as Rpc from '../../client/Rpc.js'
+import type { FieldError } from '../../Errors.js'
+import * as Filter from '../../Filter.js'
+import * as Formatter from '../../Formatter.js'
+import * as Command from '../command.js'
+import * as RuntimeContext from '../runtime-context.js'
 
 const requestSchema = z.object({
   command: z.string().transform((value) => value.trim().replace(/\s+/g, ' ')),
@@ -20,18 +20,18 @@ const requestSchema = z.object({
 })
 const sentinel = Symbol.for('incur.sentinel')
 
-/** Returns the HTTP status for a client request error code. */
-export function getClientRequestStatus(code: string) {
+/** Returns the HTTP status for an RPC error code. */
+export function getRpcStatus(code: string) {
   if (code === 'COMMAND_NOT_FOUND') return 404
   if (code === 'VALIDATION_ERROR' || code === 'INVALID_RPC_REQUEST') return 400
   if (code === 'COMMAND_GROUP' || code === 'FETCH_GATEWAY') return 400
   return 500
 }
 
-/** Creates the shared client request executor. */
-export function createClientRequest(
+/** Creates the shared in-process RPC handler. */
+export function createRpcHandler(
   ctx: RuntimeContext.RuntimeCliContext,
-  options: createClientRequest.Options = {},
+  options: createRpcHandler.Options = {},
 ) {
   return {
     async request(request: unknown): Promise<Rpc.Response | Rpc.StreamResponse> {
@@ -101,7 +101,7 @@ export function createClientRequest(
   }
 }
 
-export declare namespace createClientRequest {
+export declare namespace createRpcHandler {
   /** Execution options. */
   type Options = {
     /** Explicit environment source. */
