@@ -150,14 +150,48 @@ describe('generateCommands', () => {
   test('command has description from summary', async () => {
     const commands = await Openapi.generateCommands(spec, app.fetch)
     const cmd = commands.get('listUsers')!
+    if ('_group' in cmd) throw new Error('expected listUsers command')
     expect(cmd.description).toBe('List users')
   })
 
   test('coerced number params preserve description', async () => {
     const commands = await Openapi.generateCommands(spec, app.fetch)
     const cmd = commands.get('listUsers')!
+    if ('_group' in cmd) throw new Error('expected listUsers command')
     const limitSchema = cmd.options!.shape.limit
     expect(limitSchema.description).toBe('Max results')
+  })
+
+  test('generates namespace command groups from paths', async () => {
+    const commands = await Openapi.generateCommands(spec, app.fetch, {
+      config: { mode: 'namespace' },
+    })
+    expect([...commands.keys()].sort()).toMatchInlineSnapshot(`
+      [
+        "health",
+        "users",
+      ]
+    `)
+
+    const users = commands.get('users')!
+    expect('_group' in users).toMatchInlineSnapshot(`true`)
+    expect('_group' in users ? users.description : undefined).toMatchInlineSnapshot(`"List users"`)
+    expect('_group' in users ? [...users.commands.keys()].sort() : []).toMatchInlineSnapshot(`
+      [
+        "get",
+        "id",
+        "post",
+      ]
+    `)
+
+    const id = '_group' in users ? users.commands.get('id')! : undefined
+    expect(id && '_group' in id ? id.description : undefined).toMatchInlineSnapshot(`"User ID"`)
+    expect(id && '_group' in id ? [...id.commands.keys()].sort() : []).toMatchInlineSnapshot(`
+      [
+        "delete",
+        "get",
+      ]
+    `)
   })
 })
 
@@ -172,6 +206,16 @@ describe('cli integration', () => {
   test('GET /users via operationId', async () => {
     const { output } = await serve(createCli(), ['api', 'listUsers'])
     expect(output).toContain('Alice')
+  })
+
+  test('GET /users via namespace', async () => {
+    const cli = Cli.create('test', { description: 'test' }).command('api', {
+      fetch: app.fetch,
+      openapi: spec,
+      openapiConfig: { mode: 'namespace' },
+    })
+    const { output } = await serve(cli, ['api', 'users', 'get', '--limit', '5', '--format', 'json'])
+    expect(json(output).limit).toMatchInlineSnapshot(`5`)
   })
 
   test('GET /users?limit=5 via options', async () => {
