@@ -111,7 +111,7 @@ describe('run action', () => {
       .mockResolvedValueOnce({
         ok: true,
         data: { page: 1 },
-        output: { text: 'one', nextOffset: 5, tokenCount: 10, tokenLimit: 5 },
+        output: { text: 'one', nextOffset: 5, tokenCount: 10, tokenLimit: 5, tokenOffset: 0 },
         meta: { command: 'list', duration: '1ms' },
       })
       .mockResolvedValueOnce({
@@ -128,6 +128,23 @@ describe('run action', () => {
     expect(request).toHaveBeenLastCalledWith(
       expect.objectContaining({ command: 'list', outputTokenOffset: 5 }),
     )
+  })
+
+  test('throws ClientError for malformed output payloads', async () => {
+    const request = vi.fn(
+      async (_request: RpcRequest): Promise<RpcResponse> => ({
+        ok: true,
+        data: { ok: true },
+        output: { format: 'json' } as never,
+        meta: { command: 'status', duration: '1ms' },
+      }),
+    )
+    const client = clientWith(request)
+
+    await expect(client.run('status')).rejects.toThrow(ClientError)
+    await expect(client.run('status')).rejects.toMatchObject({
+      message: 'Malformed RPC output.',
+    })
   })
 
   test('normalizes CTA metadata and cta.run inherits client defaults only', async () => {

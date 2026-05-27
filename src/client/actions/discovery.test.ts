@@ -30,6 +30,11 @@ describe('discovery actions', () => {
         (request.resource === 'llms' || request.resource === 'llmsFull') &&
         request.format === 'json'
       )
+        return { contentType: 'application/json', data: { resource: request.resource } }
+      if (
+        (request.resource === 'llms' || request.resource === 'llmsFull') &&
+        request.format === 'jsonl'
+      )
         return { contentType: 'text/plain', body: JSON.stringify({ resource: request.resource }) }
       return { contentType: 'application/json', data: { resource: request.resource } }
     })
@@ -38,6 +43,9 @@ describe('discovery actions', () => {
     await expect(client.llms()).resolves.toEqual({ resource: 'llms' })
     await expect(client.llms({ command: 'project' as never, format: 'md' })).resolves.toBe(
       '# Manifest',
+    )
+    await expect(client.llms({ command: 'project' as never, format: 'jsonl' })).resolves.toBe(
+      '{"resource":"llms"}',
     )
     await expect(client.llmsFull({ command: 'project' as never })).resolves.toEqual({
       resource: 'llmsFull',
@@ -52,6 +60,7 @@ describe('discovery actions', () => {
     expect(discover.mock.calls.map(([request]) => request)).toEqual([
       { resource: 'llms', format: 'json' },
       { resource: 'llms', command: 'project', format: 'md' },
+      { resource: 'llms', command: 'project', format: 'jsonl' },
       { resource: 'llmsFull', command: 'project', format: 'json' },
       { resource: 'schema', command: 'project report' },
       { resource: 'help', command: 'project report' },

@@ -2,6 +2,7 @@ import { ClientError } from '../ClientError.js'
 import type {
   Envelope as RpcFullEnvelope,
   Meta as RpcMeta,
+  Output as RpcOutput,
   Request as RpcRequest,
   Response as RpcResponse,
   StreamRecord as RpcStreamRecord,
@@ -69,42 +70,33 @@ function normalizeEnvelope(
   return {
     ok: true,
     data: response.data,
-    ...(response.output ? { output: output(client, request, response) } : undefined),
+    ...(response.output ? { output: output(client, request, response.output) } : undefined),
     meta: normalizeMeta(client, response.meta),
   }
 }
 
-function output(
-  client: ActionClient,
-  request: RpcRequest,
-  response: Extract<RpcFullEnvelope, { ok: true }>,
+function output(client: ActionClient, request: RpcRequest, value: RpcOutput): ClientOutput<unknown> {
+  return normalizeOutput(value, value.nextOffset, (nextOffset) =>
+    normalizeNext(client, {
+      ...request,
+      outputTokenOffset: nextOffset,
+    }),
+  )
+}
+
+function normalizeOutput(
+  value: RpcOutput,
+  nextOffset?: number | undefined,
+  next?: ((nextOffset: number) => Promise<ClientRunResult<unknown>>) | undefined,
 ): ClientOutput<unknown> {
-  const nextOffset = response.output?.nextOffset
+  if (typeof value.text !== 'string') throw new ClientError('Malformed RPC output.')
   return {
-    text: response.output?.text ?? '',
-    ...(response.output?.format !== undefined ? { format: response.output.format } : undefined),
-    ...(response.output?.tokenCount !== undefined
-      ? { tokenCount: response.output.tokenCount }
-      : undefined),
-    ...(response.output?.tokenLimit !== undefined
-      ? { tokenLimit: response.output.tokenLimit }
-      : request.outputTokenLimit !== undefined
-        ? { tokenLimit: request.outputTokenLimit }
-        : undefined),
-    ...(response.output?.tokenOffset !== undefined
-      ? { tokenOffset: response.output.tokenOffset }
-      : request.outputTokenOffset !== undefined
-        ? { tokenOffset: request.outputTokenOffset }
-        : undefined),
-    ...(nextOffset !== undefined
-      ? {
-          next: () =>
-            normalizeNext(client, {
-              ...request,
-              outputTokenOffset: nextOffset,
-            }),
-        }
-      : undefined),
+    text: value.text,
+    ...(value.format !== undefined ? { format: value.format } : undefined),
+    ...(value.tokenCount !== undefined ? { tokenCount: value.tokenCount } : undefined),
+    ...(value.tokenLimit !== undefined ? { tokenLimit: value.tokenLimit } : undefined),
+    ...(value.tokenOffset !== undefined ? { tokenOffset: value.tokenOffset } : undefined),
+    ...(nextOffset !== undefined && next ? { next: () => next(nextOffset) } : undefined),
   }
 }
 
@@ -228,6 +220,7 @@ function normalizeStream(
         type: 'done',
         ok: true,
         ...('data' in record ? { data: record.data } : undefined),
+        ...(record.output ? { output: normalizeOutput(record.output) } : undefined),
         meta: meta(record.meta),
       }
     return {

@@ -16,7 +16,9 @@ function memoryClient() {
           skills: [{ name: 'deploy' }],
           options,
         })),
-        list: vi.fn(async () => [{ description: 'Deploy', installed: false, name: 'deploy' }]),
+        list: vi.fn(async () => ({
+          skills: [{ description: 'Deploy', installed: false, name: 'deploy' }],
+        })),
       },
       mcp: {
         add: vi.fn(async (options) => ({ agents: options?.agents ?? [], command: 'pnpm app' })),

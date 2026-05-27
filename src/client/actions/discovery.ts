@@ -80,12 +80,6 @@ export async function mcpTools(client: ActionClient): Promise<McpToolsResponse> 
 async function discover(client: ActionClient, request: ResourcesRequest): Promise<unknown> {
   try {
     const response = await client.transport.discover(request)
-    if (
-      'body' in response &&
-      (request.resource === 'llms' || request.resource === 'llmsFull') &&
-      request.format === 'json'
-    )
-      return JSON.parse(response.body)
     if ('body' in response) return response.body
     return response.data
   } catch (error) {

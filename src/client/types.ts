@@ -319,6 +319,8 @@ export type ClientStreamFinal<finalData = unknown, commands = Commands> = {
   ok: true
   /** Terminal structured data. */
   data?: finalData | undefined
+  /** Terminal rendered output text. */
+  output?: ClientOutput<finalData, commands> | undefined
   /** Terminal metadata. */
   meta: ClientMeta<commands>
 }
@@ -334,11 +336,17 @@ export type ClientStreamOutput = {
 /** Normalized stream record. */
 export type ClientStreamRecord<chunk, finalData = unknown, commands = Commands> =
   | { type: 'chunk'; data: chunk; output?: ClientStreamOutput | undefined }
-  | { type: 'done'; ok: true; data?: finalData | undefined; meta: ClientMeta<commands> }
+  | {
+      type: 'done'
+      ok: true
+      data?: finalData | undefined
+      output?: ClientOutput<finalData, commands> | undefined
+      meta: ClientMeta<commands>
+    }
   | { type: 'error'; ok: false; error: ClientRpcError; meta: ClientMeta<commands> }
 
 /** Discovery format. */
-export type DiscoveryFormat = 'md' | 'json' | 'yaml' | 'toon'
+export type DiscoveryFormat = 'md' | 'json' | 'jsonl' | 'yaml' | 'toon'
 
 /** Discovery result for a structured type and format option. */
 export type DiscoveryResult<structured, format> = [format] extends [undefined]

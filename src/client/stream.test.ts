@@ -41,7 +41,13 @@ describe('ClientStreamResponse', () => {
     const client = streamClient([
       { type: 'chunk', data: { line: 1 } },
       { type: 'chunk', data: { line: 2 } },
-      { type: 'done', ok: true, data: { lines: 2 }, meta: { command: 'logs', duration: '2ms' } },
+      {
+        type: 'done',
+        ok: true,
+        data: { lines: 2 },
+        output: { text: 'lines: 2', format: 'toon', tokenCount: 2 },
+        meta: { command: 'logs', duration: '2ms' },
+      },
     ])
     const stream = await client.run('logs')
     const chunks: unknown[] = []
@@ -50,6 +56,7 @@ describe('ClientStreamResponse', () => {
     expect(chunks).toEqual([{ line: 1 }, { line: 2 }])
     await expect(stream.final).resolves.toMatchObject({
       data: { lines: 2 },
+      output: { text: 'lines: 2', format: 'toon', tokenCount: 2 },
       meta: { command: 'logs' },
     })
   })
