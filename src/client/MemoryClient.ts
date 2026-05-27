@@ -10,15 +10,15 @@ export type MemoryClient<
 
 /** Creates a memory typed client and infers commands from a concrete CLI. */
 export function create<
-  const commands extends Cli.CommandsMap,
+  const inferredCommands extends Cli.CommandsMap,
   const defaults extends Client.Defaults = {},
 >(
-  cli: Cli.Cli<commands, any, any>,
+  cli: Cli.Cli<inferredCommands, any, any>,
   options?: (MemoryTransport.Options & defaults & Client.Defaults) | undefined,
-): MemoryClient<commands, defaults>
+): MemoryClient<inferredCommands, defaults>
 /** Creates a memory typed client with an explicit command map. */
 export function create<
-  const commands = Client.Commands,
+  const commands extends Client.CommandsMap = Client.Commands,
   const defaults extends Client.Defaults = {},
 >(
   cli: Cli.Cli<any, any, any>,
