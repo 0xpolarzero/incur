@@ -62,7 +62,26 @@ export type InputParameters<
 /** Rejects keys outside an expected input shape. */
 export type StrictInput<input, shape> = input extends undefined
   ? undefined
-  : input & { [key in Exclude<keyof input, keyof shape>]: never }
+  : input & { [key in Exclude<keyof input, keyof shape>]: never } & {
+      [key in keyof input & keyof shape]: key extends 'args' | 'options'
+        ? StrictField<input[key], shape[key]>
+        : input[key]
+    }
+
+/** Rejects keys outside expected `args` or `options` objects. */
+export type StrictField<value, shape> =
+  IsUnknown<shape> extends true
+    ? value
+    : NonNullable<shape> extends object
+      ? value & { [key in Exclude<keyof value, keyof NonNullable<shape>>]: never }
+      : value
+
+/** Returns true when a type is exactly unknown. */
+export type IsUnknown<type> = unknown extends type
+  ? [keyof type] extends [never]
+    ? true
+    : false
+  : false
 
 /** Effective output type after selection controls. */
 export type EffectiveOutput<output, selection> = [selection] extends [undefined] ? output : unknown
