@@ -118,6 +118,38 @@ describe('fromCli', () => {
     expect(output).toContain('tags: string[]')
   })
 
+  test('emits scalar and array output schemas', () => {
+    const cli = Cli.create('test')
+      .command('read', {
+        output: z.string(),
+        run: () => 'content',
+      })
+      .command('list', {
+        output: z.array(z.object({ id: z.string(), active: z.boolean() })),
+        run: () => [{ id: 'one', active: true }],
+      })
+
+    const output = Typegen.fromCli(cli)
+    expect(output).toContain('read: { args: {}; options: {}; output: string }')
+    expect(output).toContain(
+      'list: { args: {}; options: {}; output: { id: string; active: boolean }[] }',
+    )
+  })
+
+  test('marks async generator commands as streams', () => {
+    const cli = Cli.create('test').command('tail', {
+      output: z.object({ line: z.string() }),
+      async *run() {
+        yield { line: 'ok' }
+      },
+    })
+
+    const output = Typegen.fromCli(cli)
+    expect(output).toContain(
+      'tail: { args: {}; options: {}; output: { line: string }; stream: true }',
+    )
+  })
+
   test('commands are sorted alphabetically', () => {
     const cli = Cli.create('test')
       .command('zebra', { run: () => ({}) })

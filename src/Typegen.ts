@@ -19,7 +19,7 @@ export function fromCli(cli: Cli.Cli): string {
 
   for (const { id, command } of entries)
     lines.push(
-      `      ${propertyKey(id)}: { args: ${schemaToType(command.args)}; options: ${schemaToType(command.options)} }`,
+      `      ${propertyKey(id)}: { args: ${objectSchemaToType(command.args)}; options: ${objectSchemaToType(command.options)}${command.output ? `; output: ${schemaToType(command.output)}` : ''}${isStream(command) ? '; stream: true' : ''} }`,
     )
 
   lines.push('    }', '  }', '}', '')
@@ -27,19 +27,16 @@ export function fromCli(cli: Cli.Cli): string {
 }
 
 /** Converts a Zod object schema to a TypeScript type string. Returns `{}` for undefined schemas. */
-function schemaToType(schema: z.ZodObject<any> | undefined): string {
+function objectSchemaToType(schema: z.ZodObject<any> | undefined): string {
   if (!schema) return '{}'
+  return schemaToType(schema)
+}
+
+/** Converts a Zod schema to a TypeScript type string. */
+function schemaToType(schema: z.ZodType): string {
   const json = z.toJSONSchema(schema) as Record<string, unknown>
   const defs = (json.$defs ?? {}) as Record<string, Record<string, unknown>>
-  const properties = json.properties as Record<string, Record<string, unknown>> | undefined
-  if (!properties || Object.keys(properties).length === 0) return '{}'
-  const required = new Set((json.required as string[] | undefined) ?? [])
-  const entries = Object.entries(properties).map(([key, value]) => {
-    const type = resolveType(value, defs)
-    if (required.has(key)) return `${propertyKey(key)}: ${type}`
-    return `${propertyKey(key)}?: ${type} | undefined`
-  })
-  return `{ ${entries.join('; ')} }`
+  return resolveType(json, defs)
 }
 
 /** Recursively resolves a JSON Schema node to a TypeScript type string. */
@@ -98,4 +95,8 @@ function resolveType(
 
 function propertyKey(key: string) {
   return /^[A-Za-z_$][\w$]*$/.test(key) ? key : JSON.stringify(key)
+}
+
+function isStream(command: Cli.CommandDefinition<any, any, any, any, any, any>) {
+  return command.run.constructor.name === 'AsyncGeneratorFunction'
 }
