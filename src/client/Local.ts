@@ -37,8 +37,8 @@ export type SkillsList = {
 /** MCP registration result. */
 export type McpRegistration = SyncMcp.register.Result
 
-/** Memory-only local operations exposed by the memory transport. */
-export type Handler = {
+/** Memory-only local methods exposed by memory transports and clients. */
+export type Methods = {
   /** Skill setup actions. */
   skills: {
     /** Sync generated skill files. */

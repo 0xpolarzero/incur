@@ -15,7 +15,7 @@ export type MemoryTransport = Transport.Factory<
   {
     request(request: Rpc.Request): Promise<Rpc.Response | Rpc.StreamResponse>
     discover(request: Resources.Request): Promise<Resources.Response>
-    local: Local.Handler
+    local: Local.Methods
   }
 >
 
