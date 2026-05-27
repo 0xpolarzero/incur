@@ -190,9 +190,20 @@ describe('createClientRequest', () => {
     expect(response).toMatchObject({
       ok: true,
       data: { items: [{ id: 'a' }] },
-      meta: { command: 'project list', nextOffset: 4, outputTokenCount: expect.any(Number) },
-      output: { truncated: true },
+      meta: { command: 'project list' },
+      output: {
+        format: 'json',
+        nextOffset: 4,
+        tokenCount: expect.any(Number),
+        tokenLimit: 4,
+        tokenOffset: 0,
+        truncated: true,
+      },
     })
+    if ('stream' in response || !response.ok || !response.output)
+      throw new Error('expected success')
+    expect(response.meta).not.toHaveProperty('nextOffset')
+    expect(response.meta).not.toHaveProperty('outputTokenCount')
   })
 
   test('rejects empty selections and omits token count unless requested', async () => {
@@ -203,26 +214,103 @@ describe('createClientRequest', () => {
       ok: false,
       error: { code: 'INVALID_RPC_REQUEST' },
     })
-    await expect(
-      createClientRequest(ctx, { env: { API_KEY: 'k' } }).request({
-        command: 'project list',
-        args: { projectId: 'p1' },
-        options: {},
-      }),
-    ).resolves.not.toMatchObject({ meta: { outputTokenCount: expect.any(Number) } })
+    const response = await createClientRequest(ctx, { env: { API_KEY: 'k' } }).request({
+      command: 'project list',
+      args: { projectId: 'p1' },
+      options: {},
+    })
+    if ('stream' in response || !response.ok || !response.output)
+      throw new Error('expected success')
+    expect(response.output).toMatchObject({ format: 'json' })
+    expect(response.output).not.toHaveProperty('tokenCount')
+    expect(response.output).not.toHaveProperty('tokenLimit')
+    expect(response.output).not.toHaveProperty('tokenOffset')
+    expect(response.output).not.toHaveProperty('nextOffset')
+
+    const counted = await createClientRequest(ctx, { env: { API_KEY: 'k' } }).request({
+      command: 'project list',
+      args: { projectId: 'p1' },
+      options: {},
+      outputTokenCount: true,
+    })
+    expect(counted).toMatchObject({
+      ok: true,
+      output: { format: 'json', tokenCount: expect.any(Number) },
+    })
+    if ('stream' in counted || !counted.ok || !counted.output) throw new Error('expected success')
+    expect(counted.output).not.toHaveProperty('tokenLimit')
+    expect(counted.output).not.toHaveProperty('tokenOffset')
+    expect(counted.output).not.toHaveProperty('nextOffset')
+    expect(counted.output).not.toHaveProperty('truncated')
+  })
+
+  test('keeps token metadata on output for non-truncated and offset-only requests', async () => {
+    const { ctx } = createFixture()
+    const request = createClientRequest(ctx, { env: { API_KEY: 'k' } }).request
+    const limited = await request({
+      command: 'project list',
+      args: { projectId: 'p1' },
+      options: {},
+      outputTokenLimit: 100,
+    })
+    expect(limited).toMatchObject({
+      ok: true,
+      output: {
+        format: 'json',
+        tokenCount: expect.any(Number),
+        tokenLimit: 100,
+        tokenOffset: 0,
+      },
+    })
+    if ('stream' in limited || !limited.ok || !limited.output) throw new Error('expected success')
+    expect(limited.output).not.toHaveProperty('nextOffset')
+    expect(limited.output).not.toHaveProperty('truncated')
+
+    const offset = await request({
+      command: 'project list',
+      args: { projectId: 'p1' },
+      options: {},
+      outputTokenOffset: 1,
+    })
+    expect(offset).toMatchObject({
+      ok: true,
+      output: {
+        format: 'json',
+        tokenCount: expect.any(Number),
+        tokenOffset: 1,
+        truncated: true,
+      },
+    })
+    if ('stream' in offset || !offset.ok || !offset.output) throw new Error('expected success')
+    expect(offset.output).not.toHaveProperty('nextOffset')
   })
 
   test('streams chunks, terminal metadata, terminal errors, and cancellation', async () => {
     const { ctx, order } = createFixture()
     const { request } = createClientRequest(ctx, { env: { API_KEY: 'k' } })
-    const response = await request({ command: 'project stream' })
+    const response = await request({
+      command: 'project stream',
+      outputTokenCount: true,
+      outputTokenLimit: 1,
+    })
     if (!('stream' in response)) throw new Error('expected stream')
     const records: unknown[] = []
     for await (const record of response.records()) records.push(record)
     expect(records).toMatchObject([
       { type: 'chunk', data: { step: 1 } },
       { type: 'chunk', data: { step: 2 } },
-      { type: 'done', ok: true, meta: { command: 'project stream', cta: expect.any(Object) } },
+      {
+        type: 'done',
+        ok: true,
+        meta: { command: 'project stream', cta: expect.any(Object) },
+        output: {
+          format: 'json',
+          tokenCount: expect.any(Number),
+          tokenLimit: 1,
+          tokenOffset: 0,
+          truncated: true,
+        },
+      },
     ])
 
     const failed = await request({ command: 'project fail-stream' })

@@ -25,6 +25,16 @@ export type Request = {
 export type Output = {
   /** Rendered output text. */
   text: string
+  /** Rendered format. */
+  format?: Formatter.Format | undefined
+  /** Offset to request for the next token window. */
+  nextOffset?: number | undefined
+  /** Rendered token count before truncation. */
+  tokenCount?: number | undefined
+  /** Requested token limit. */
+  tokenLimit?: number | undefined
+  /** Requested token offset. */
+  tokenOffset?: number | undefined
   /** Whether text was truncated by token controls. */
   truncated?: boolean | undefined
 }
@@ -37,10 +47,6 @@ export type Meta = {
   cta?: unknown | undefined
   /** Wall-clock duration. */
   duration: string
-  /** Offset to request for the next token window. */
-  nextOffset?: number | undefined
-  /** Rendered token count before truncation. */
-  outputTokenCount?: number | undefined
 }
 
 /** Full request success/error envelope. */

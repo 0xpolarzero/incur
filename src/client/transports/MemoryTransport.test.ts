@@ -56,6 +56,35 @@ describe('MemoryTransport', () => {
     })
   })
 
+  test('preserves rendered output metadata for in-process execution', async () => {
+    const cli = Cli.create('app').command('status', {
+      run() {
+        return { items: [{ id: 'a' }, { id: 'b' }] }
+      },
+    })
+    const transport = MemoryTransport.create(cli)()
+
+    await expect(
+      transport.request({
+        command: 'status',
+        outputFormat: 'json',
+        outputTokenCount: true,
+        outputTokenLimit: 1,
+        outputTokenOffset: 1,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      output: {
+        format: 'json',
+        nextOffset: expect.any(Number),
+        tokenCount: expect.any(Number),
+        tokenLimit: 1,
+        tokenOffset: 1,
+        truncated: true,
+      },
+    })
+  })
+
   test('discovers every resource in process', async () => {
     const cli = Cli.create('app', { description: 'App', version: '1.2.3' }).command('status', {
       description: 'Show status',

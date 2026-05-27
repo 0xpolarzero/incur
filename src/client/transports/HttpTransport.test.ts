@@ -91,6 +91,35 @@ describe('HttpTransport', () => {
     })
   })
 
+  test('preserves rendered output metadata from JSON envelopes', async () => {
+    const cli = Cli.create('app').command('status', {
+      run() {
+        return { items: [{ id: 'a' }, { id: 'b' }] }
+      },
+    })
+    const { transport } = connect(cli)
+
+    await expect(
+      transport.request({
+        command: 'status',
+        outputFormat: 'json',
+        outputTokenCount: true,
+        outputTokenLimit: 1,
+        outputTokenOffset: 1,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      output: {
+        format: 'json',
+        nextOffset: expect.any(Number),
+        tokenCount: expect.any(Number),
+        tokenLimit: 1,
+        tokenOffset: 1,
+        truncated: true,
+      },
+    })
+  })
+
   test('wraps fetch rejection and rejects malformed JSON envelopes', async () => {
     const failing = vi.fn(async () => {
       throw new Error('offline')

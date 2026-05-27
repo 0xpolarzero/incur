@@ -97,7 +97,7 @@ export function createClientRequest(
 
       if ('stream' in result) return streamResponse(result.stream, resolved.id, start, rpc)
       if (!result.ok)
-        return errorEnvelope(resolved.id, start, result.error, formatCta(ctx.name, result.cta), rpc)
+        return errorEnvelope(resolved.id, start, result.error, formatCta(ctx.name, result.cta))
       return successEnvelope(resolved.id, start, result.data, formatCta(ctx.name, result.cta), rpc)
     },
   }
@@ -126,13 +126,7 @@ function streamResponse(
           const { value, done } = await stream.next()
           if (done) {
             if (isSentinel(value) && value[sentinel] === 'error') {
-              terminal = errorRecord(
-                command,
-                start,
-                sentinelError(value),
-                formatCta('', value.cta),
-                request,
-              )
+              terminal = errorRecord(command, start, sentinelError(value), formatCta('', value.cta))
             } else {
               const data = isSentinel(value) ? value.data : undefined
               terminal = {
@@ -150,13 +144,7 @@ function streamResponse(
             return terminal
           }
           if (isSentinel(value) && value[sentinel] === 'error') {
-            terminal = errorRecord(
-              command,
-              start,
-              sentinelError(value),
-              formatCta('', value.cta),
-              request,
-            )
+            terminal = errorRecord(command, start, sentinelError(value), formatCta('', value.cta))
             yield terminal
             return terminal
           }
@@ -171,7 +159,6 @@ function streamResponse(
             message: error instanceof Error ? error.message : String(error),
           },
           undefined,
-          request,
         )
         yield terminal
         return terminal
@@ -191,13 +178,12 @@ function successEnvelope(
 ): Extract<ClientRequest.Envelope, { ok: true }> {
   const selected = applySelection(data, request.selection)
   const output = renderOutput(selected, request)
+  const payload = outputPayload(output, request)
   return {
     ok: true,
     data: selected,
-    ...(output.text
-      ? { output: { text: output.text, ...(output.truncated ? { truncated: true } : undefined) } }
-      : undefined),
-    meta: meta(command, start, cta, output, request),
+    ...(payload ? { output: payload } : undefined),
+    meta: meta(command, start, cta),
   }
 }
 
@@ -211,12 +197,11 @@ function errorEnvelope(
     retryable?: boolean | undefined
   },
   cta?: unknown | undefined,
-  request: ClientRequest.Request = { command },
 ): Extract<ClientRequest.Envelope, { ok: false }> {
   return {
     ok: false,
     error,
-    meta: meta(command, start, cta, renderOutput(undefined, request), request),
+    meta: meta(command, start, cta),
   }
 }
 
@@ -230,9 +215,8 @@ function errorRecord(
     retryable?: boolean | undefined
   },
   cta: unknown | undefined,
-  request: ClientRequest.Request,
 ): Extract<ClientRequest.StreamRecord, { type: 'error' }> {
-  return { type: 'error', ...errorEnvelope(command, start, error, cta, request) }
+  return { type: 'error', ...errorEnvelope(command, start, error, cta) }
 }
 
 function applySelection(data: unknown, selection: string[] | undefined) {
@@ -244,34 +228,57 @@ function applySelection(data: unknown, selection: string[] | undefined) {
 }
 
 function renderOutput(data: unknown, request: ClientRequest.Request) {
-  const text = Formatter.format(data, request.outputFormat ?? 'json')
+  const format = request.outputFormat ?? 'json'
+  const text = Formatter.format(data, format)
   const count = estimateTokenCount(text)
   const offset = request.outputTokenOffset ?? 0
   if (request.outputTokenLimit === undefined && request.outputTokenOffset === undefined)
-    return { text, count, truncated: false }
+    return { text, format, count, offset, truncated: false }
   const end = request.outputTokenLimit === undefined ? count : offset + request.outputTokenLimit
   const sliced = sliceByTokens(text, offset, end)
   return {
     text: sliced,
+    format,
     count,
-    truncated: end < count,
+    offset,
+    truncated: offset > 0 || end < count,
     nextOffset: end < count ? end : undefined,
   }
 }
 
-function meta(
-  command: string,
-  start: number,
-  cta: unknown | undefined,
-  output: { count: number; nextOffset?: number | undefined },
+function outputPayload(
+  output: ReturnType<typeof renderOutput>,
   request: ClientRequest.Request,
-): ClientRequest.Meta {
+): ClientRequest.Output | undefined {
+  if (!output.text && !includeTokenMetadata(request)) return undefined
+  return {
+    text: output.text,
+    format: output.format,
+    ...(output.nextOffset !== undefined ? { nextOffset: output.nextOffset } : undefined),
+    ...(includeTokenMetadata(request) ? { tokenCount: output.count } : undefined),
+    ...(request.outputTokenLimit !== undefined
+      ? { tokenLimit: request.outputTokenLimit }
+      : undefined),
+    ...(request.outputTokenLimit !== undefined || request.outputTokenOffset !== undefined
+      ? { tokenOffset: output.offset }
+      : undefined),
+    ...(output.truncated ? { truncated: true } : undefined),
+  }
+}
+
+function includeTokenMetadata(request: ClientRequest.Request) {
+  return (
+    request.outputTokenCount ||
+    request.outputTokenLimit !== undefined ||
+    request.outputTokenOffset !== undefined
+  )
+}
+
+function meta(command: string, start: number, cta: unknown | undefined): ClientRequest.Meta {
   return {
     command,
     duration: `${Math.round(performance.now() - start)}ms`,
     ...(cta ? { cta } : undefined),
-    ...(request.outputTokenCount ? { outputTokenCount: output.count } : undefined),
-    ...(output.nextOffset !== undefined ? { nextOffset: output.nextOffset } : undefined),
   }
 }
 
