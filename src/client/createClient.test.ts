@@ -1,13 +1,13 @@
 import { describe, expect, test, vi } from 'vitest'
 
 import * as Cli from '../Cli.js'
+import { ClientError } from './ClientError.js'
+import { createClient, createHttpClient, createMemoryClient } from './createClient.js'
 import type {
   Request as RpcRequest,
   Response as RpcResponse,
   StreamResponse as RpcStreamResponse,
 } from './Rpc.js'
-import { ClientError } from './ClientError.js'
-import { createClient, createHttpClient, createMemoryClient } from './createClient.js'
 import * as HttpTransport from './transports/HttpTransport.js'
 
 function mockTransport(): HttpTransport.HttpTransport {

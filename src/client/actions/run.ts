@@ -75,7 +75,11 @@ function normalizeEnvelope(
   }
 }
 
-function output(client: ActionClient, request: RpcRequest, value: RpcOutput): ClientOutput<unknown> {
+function output(
+  client: ActionClient,
+  request: RpcRequest,
+  value: RpcOutput,
+): ClientOutput<unknown> {
   return normalizeOutput(value, value.nextOffset, (nextOffset) =>
     normalizeNext(client, {
       ...request,

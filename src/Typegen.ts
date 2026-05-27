@@ -2,11 +2,7 @@ import fs from 'node:fs/promises'
 import { z } from 'zod'
 
 import * as Cli from './Cli.js'
-<<<<<<< HEAD
 import * as RuntimeContext from './internal/runtime-context.js'
-=======
-import * as RuntimeContext from './internal/client-runtime-context.js'
->>>>>>> 3df4c76 (refactor: keep public surface typegen scoped)
 import { importCli } from './internal/utils.js'
 
 /** Imports a CLI from `input` (must `export default` a `Cli`), generates the `.d.ts`, and writes it to `output`. */
@@ -17,19 +13,14 @@ export async function generate(input: string, output: string): Promise<void> {
 
 /** Generates a `.d.ts` declaration string for the `incur` module augmentation. */
 export function fromCli(cli: Cli.Cli): string {
-<<<<<<< HEAD
   const entries = RuntimeContext.collectStructuredCommands(RuntimeContext.fromCli(cli))
-=======
-  const entries = RuntimeContext.collectClientCommands(RuntimeContext.fromCli(cli))
->>>>>>> 3df4c76 (refactor: keep public surface typegen scoped)
 
   const lines: string[] = ['export type Commands = {']
 
-  for (const { id, command } of entries) {
+  for (const { id, command } of entries)
     lines.push(
       `  ${propertyKey(id)}: { args: ${objectSchemaToType(command.args)}; options: ${objectSchemaToType(command.options)}${command.output ? `; output: ${schemaToType(command.output)}` : ''}${isStream(command) ? '; stream: true' : ''} }`,
     )
-  }
 
   lines.push(
     '}',
@@ -105,42 +96,11 @@ function resolveType(
       const properties = schema.properties as Record<string, Record<string, unknown>> | undefined
       if (!properties || Object.keys(properties).length === 0) return '{}'
       const required = new Set((schema.required as string[] | undefined) ?? [])
-<<<<<<< HEAD
-<<<<<<< HEAD
-      const entries = Object.entries(properties ?? {}).map(([key, value]) => {
-<<<<<<< HEAD
-        const type = resolveType(value, defs)
-        if (required.has(key)) return `${propertyKey(key)}: ${type}`
-        return `${propertyKey(key)}?: ${type} | undefined`
-=======
-        const type = resolveType(value, defs, context, seen)
-        return required.has(key)
-          ? `${propertyKey(key)}: ${type}`
-          : `${propertyKey(key)}?: ${type} | undefined`
->>>>>>> 0a77e57 (fix: tighten typed client typegen surface)
-      })
-      if (additional && typeof additional === 'object') {
-        const values = Object.entries(properties ?? {}).map(([key, value]) => {
-          const type = resolveType(value, defs, context, seen)
-          return required.has(key) ? type : `${type} | undefined`
-        })
-        entries.push(
-          `[key: string]: ${union([resolveType(additional, defs, context, seen), ...values])}`,
-        )
-      }
-      if (additional === true) entries.push('[key: string]: unknown')
-=======
-      const entries = Object.entries(properties).map(
-        ([key, value]) => `${key}${required.has(key) ? '' : '?'}: ${resolveType(value, defs)}`,
-      )
->>>>>>> 3df4c76 (refactor: keep public surface typegen scoped)
-=======
       const entries = Object.entries(properties).map(([key, value]) => {
         const type = resolveType(value, defs)
         if (required.has(key)) return `${propertyKey(key)}: ${type}`
         return `${propertyKey(key)}?: ${type} | undefined`
       })
->>>>>>> dbb43b1 (fix: align typed client contracts)
       return `{ ${entries.join('; ')} }`
     }
     default:
@@ -148,73 +108,10 @@ function resolveType(
   }
 }
 
-<<<<<<< HEAD
-function arrayType(type: string) {
-  return type.includes(' | ') ? `(${type})[]` : `${type}[]`
-}
-
-function union(types: string[]) {
-  return [...new Set(types)].join(' | ')
-}
-
-<<<<<<< HEAD
-function isStream(command: Cli.CommandDefinition<any, any, any, any, any, any>) {
-=======
-function semanticKeys(schema: Record<string, unknown>) {
-  return Object.keys(schema).filter((key) => !['$schema', 'description', 'title'].includes(key))
-}
-
-function schemaArray(value: unknown, context: string, key: string): JsonSchema[] {
-  if (!Array.isArray(value) || value.length === 0)
-    throw new TypegenError(
-      `Cannot generate TypeScript for ${context}: JSON Schema ${key} is invalid.`,
-    )
-  if (value.every((item) => typeof item === 'boolean' || isRecord(item))) return value
-  throw new TypegenError(
-    `Cannot generate TypeScript for ${context}: JSON Schema ${key} is invalid.`,
-  )
-}
-
-function isSchemaMap(value: unknown): value is Record<string, JsonSchema> {
-  return (
-    isRecord(value) &&
-    Object.values(value).every((schema) => typeof schema === 'boolean' || isRecord(schema))
-  )
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function literalType(value: unknown, context: string) {
-  const type = JSON.stringify(value)
-  if (type !== undefined) return type
-  throw new TypegenError(
-    `Cannot generate TypeScript for ${context}: JSON Schema literal is invalid.`,
-  )
-}
-
-function assertSupportedPropertyNames(schema: Record<string, unknown>, context: string) {
-  if (schema.propertyNames === undefined) return
-  if (schema.propertyNames === true) return
-  if (isRecord(schema.propertyNames) && schema.propertyNames.type === 'string') return
-  throw new TypegenError(
-    `Cannot generate TypeScript for ${context}: non-string JSON Schema property names are not supported.`,
-  )
-}
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function isStream(command: CommandTree.CommandDefinition) {
->>>>>>> 0a77e57 (fix: tighten typed client typegen surface)
-=======
-function isStream(command: Cli.CommandDefinition<any, any, any, any, any, any>) {
->>>>>>> 3df4c76 (refactor: keep public surface typegen scoped)
-  return command.run.constructor.name === 'AsyncGeneratorFunction'
-}
-
 function propertyKey(key: string) {
   return /^[A-Za-z_$][\w$]*$/.test(key) ? key : JSON.stringify(key)
+}
+
+function isStream(command: Cli.CommandDefinition<any, any, any, any, any, any>) {
+  return command.run.constructor.name === 'AsyncGeneratorFunction'
 }

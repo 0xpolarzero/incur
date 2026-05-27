@@ -1,13 +1,13 @@
 import { describe, expect, test, vi } from 'vitest'
 
+import { ClientError } from './ClientError.js'
+import { createClient } from './createClient.js'
 import type {
   Request as RpcRequest,
   Response as RpcResponse,
   StreamRecord as RpcStreamRecord,
   StreamResponse as RpcStreamResponse,
 } from './Rpc.js'
-import { ClientError } from './ClientError.js'
-import { createClient } from './createClient.js'
 import type * as HttpTransport from './transports/HttpTransport.js'
 
 function streamClient(records: RpcStreamRecord[], onReturn = vi.fn()) {

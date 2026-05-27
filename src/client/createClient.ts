@@ -37,9 +37,7 @@ export function createClient<
 export function createHttpClient<
   const commands = Commands,
   const defaults extends ClientDefaults = {},
->(
-  options: HttpTransport.Options & defaults & ClientDefaults,
-): HttpClient<commands, defaults> {
+>(options: HttpTransport.Options & defaults & ClientDefaults): HttpClient<commands, defaults> {
   const { baseUrl, fetch, headers, ...defaults } = options
   return createClient<commands, HttpTransport.HttpTransport, defaults>({
     ...defaults,
