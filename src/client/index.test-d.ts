@@ -45,13 +45,13 @@ test('client creation preserves transport type and defaults', () => {
     baseUrl: 'https://example.com',
     outputFormat: 'toon',
   })
-  expectTypeOf(http).toMatchTypeOf<HttpClient.HttpClient<Commands>>()
+  expectTypeOf(http).toExtend<HttpClient.HttpClient<Commands>>()
   expectTypeOf(http.transport.type).toEqualTypeOf<'http'>()
 
   const primitive = Client.create<Commands>({
     transport: HttpTransport.create({ baseUrl: 'https://example.com' }),
   })
-  expectTypeOf(primitive).toMatchTypeOf<Client.Client<Commands>>()
+  expectTypeOf(primitive).toExtend<Client.Client<Commands>>()
 })
 
 test('memory clients infer commands and allow explicit override', () => {
@@ -60,12 +60,12 @@ test('memory clients infer commands and allow explicit override', () => {
     run: () => ({ ok: true }),
   })
   const inferred = MemoryClient.create(cli)
-  expectTypeOf(inferred).toMatchTypeOf<
+  expectTypeOf(inferred).toExtend<
     MemoryClient.MemoryClient<{ status: { args: { id: string }; options: {} } }>
   >()
 
   const explicit = MemoryClient.create<Commands>(cli)
-  expectTypeOf(explicit).toMatchTypeOf<MemoryClient.MemoryClient<Commands>>()
+  expectTypeOf(explicit).toExtend<MemoryClient.MemoryClient<Commands>>()
 })
 
 test('local actions are memory-only and unavailable on HTTP or broad transports', () => {
@@ -142,16 +142,16 @@ test('selection defaults and clearing affect data inference', async () => {
 
 test('resources overloads and permissive command maps', async () => {
   const client = HttpClient.create<Commands>({ baseUrl: 'https://example.com' })
-  expectTypeOf(await client.llms()).toMatchTypeOf<{ commands: unknown[] }>()
-  expectTypeOf(await client.llms({ format: undefined })).toMatchTypeOf<{ commands: unknown[] }>()
-  expectTypeOf(await client.llms({ format: 'json' })).toMatchTypeOf<{ commands: unknown[] }>()
+  expectTypeOf(await client.llms()).toExtend<{ commands: unknown[] }>()
+  expectTypeOf(await client.llms({ format: undefined })).toExtend<{ commands: unknown[] }>()
+  expectTypeOf(await client.llms({ format: 'json' })).toExtend<{ commands: unknown[] }>()
   expectTypeOf(await client.llms({ format: 'md' })).toEqualTypeOf<string>()
-  expectTypeOf(await client.llmsFull()).toMatchTypeOf<{ commands: unknown[] }>()
-  expectTypeOf(await client.llmsFull({ format: undefined })).toMatchTypeOf<{
+  expectTypeOf(await client.llmsFull()).toExtend<{ commands: unknown[] }>()
+  expectTypeOf(await client.llmsFull({ format: undefined })).toExtend<{
     commands: unknown[]
   }>()
   const format = undefined as 'md' | undefined
-  expectTypeOf(await client.llms({ format })).toMatchTypeOf<string | { commands: unknown[] }>()
+  expectTypeOf(await client.llms({ format })).toExtend<string | { commands: unknown[] }>()
   await client.llmsFull({ command: 'project' })
   // @ts-expect-error unknown resources scope.
   await client.llmsFull({ command: 'unknown' })
