@@ -1,16 +1,10 @@
+import type * as Client from '../Client.js'
 import { ClientError } from '../ClientError.js'
 import type * as Resources from '../Resources.js'
-import type {
-  ActionClient,
-  CommandScope,
-  McpToolsResponse,
-  OpenApiDocument,
-  ResourcesFormat,
-  SkillsIndex,
-} from '../types.js'
+import type { ActionClient } from './ActionClient.js'
 
 /** LLM resource action options. */
-export type LlmsOptions = { command?: string | undefined; format?: ResourcesFormat | undefined }
+export type LlmsOptions = { command?: string | undefined; format?: Resources.Format | undefined }
 
 /** Reads compact LLM resources. */
 export async function llms(client: ActionClient, options: LlmsOptions = {}): Promise<unknown> {
@@ -35,7 +29,7 @@ export async function llmsFull(client: ActionClient, options: LlmsOptions = {}):
 /** Reads a command schema. */
 export async function schema(
   client: ActionClient,
-  command?: CommandScope<any> | undefined,
+  command?: Client.CommandScope<any> | undefined,
 ): Promise<Record<string, unknown>> {
   return discover(client, {
     resource: 'schema',
@@ -46,7 +40,7 @@ export async function schema(
 /** Reads help text. */
 export async function help(
   client: ActionClient,
-  command?: CommandScope<any> | undefined,
+  command?: Client.CommandScope<any> | undefined,
 ): Promise<string> {
   return discover(client, {
     resource: 'help',
@@ -55,13 +49,13 @@ export async function help(
 }
 
 /** Reads the OpenAPI document. */
-export async function openapi(client: ActionClient): Promise<OpenApiDocument> {
-  return discover(client, { resource: 'openapi' }) as Promise<OpenApiDocument>
+export async function openapi(client: ActionClient): Promise<Resources.OpenApiDocument> {
+  return discover(client, { resource: 'openapi' }) as Promise<Resources.OpenApiDocument>
 }
 
 /** Reads the generated skills index. */
-export async function skillsIndex(client: ActionClient): Promise<SkillsIndex> {
-  return discover(client, { resource: 'skillsIndex' }) as Promise<SkillsIndex>
+export async function skillsIndex(client: ActionClient): Promise<Resources.SkillsIndex> {
+  return discover(client, { resource: 'skillsIndex' }) as Promise<Resources.SkillsIndex>
 }
 
 /** Reads a generated skill file. */
@@ -70,8 +64,8 @@ export async function skill(client: ActionClient, name: string): Promise<string>
 }
 
 /** Reads MCP tool descriptors. */
-export async function mcpTools(client: ActionClient): Promise<McpToolsResponse> {
-  return discover(client, { resource: 'mcpTools' }) as Promise<McpToolsResponse>
+export async function mcpTools(client: ActionClient): Promise<Resources.McpToolsResponse> {
+  return discover(client, { resource: 'mcpTools' }) as Promise<Resources.McpToolsResponse>
 }
 
 /** Binds resource actions to a client. */
@@ -83,10 +77,10 @@ export function actions(client: ActionClient) {
     llmsFull(options?: LlmsOptions | undefined) {
       return llmsFull(client, options)
     },
-    schema(command?: CommandScope<any> | undefined) {
+    schema(command?: Client.CommandScope<any> | undefined) {
       return schema(client, command)
     },
-    help(command?: CommandScope<any> | undefined) {
+    help(command?: Client.CommandScope<any> | undefined) {
       return help(client, command)
     },
     openapi() {

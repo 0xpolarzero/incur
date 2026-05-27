@@ -1,26 +1,34 @@
 import type * as Cli from '../Cli.js'
 import * as Client from './Client.js'
 import * as MemoryTransport from './transports/MemoryTransport.js'
-import type { AnyCli, ClientDefaults, Commands, MemoryClient } from './types.js'
 
-export type { MemoryClient }
+type AnyCli = Cli.Cli<any, any, any>
+
+/** Memory client instance. */
+export type MemoryClient<
+  commands = Client.Commands,
+  defaults extends Client.Defaults = {},
+> = Client.Client<commands, MemoryTransport.MemoryTransport, defaults>
 
 /** Creates a memory typed client and infers commands from a concrete CLI. */
 export function create<
   const commands extends Cli.CommandsMap,
-  const defaults extends ClientDefaults = {},
+  const defaults extends Client.Defaults = {},
 >(
   cli: Cli.Cli<commands, any, any>,
-  options?: (MemoryTransport.Options & defaults & ClientDefaults) | undefined,
+  options?: (MemoryTransport.Options & defaults & Client.Defaults) | undefined,
 ): MemoryClient<commands, defaults>
 /** Creates a memory typed client with an explicit command map. */
-export function create<const commands = Commands, const defaults extends ClientDefaults = {}>(
+export function create<
+  const commands = Client.Commands,
+  const defaults extends Client.Defaults = {},
+>(
   cli: AnyCli,
-  options?: (MemoryTransport.Options & defaults & ClientDefaults) | undefined,
+  options?: (MemoryTransport.Options & defaults & Client.Defaults) | undefined,
 ): MemoryClient<commands, defaults>
 export function create(
   cli: AnyCli,
-  options: MemoryTransport.Options & ClientDefaults = {},
+  options: MemoryTransport.Options & Client.Defaults = {},
 ): MemoryClient<any, any> {
   const { env, ...defaults } = options
   return Client.create({

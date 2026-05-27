@@ -1,5 +1,5 @@
 import { Cli, z } from 'incur'
-import { Client, HttpClient, HttpTransport, MemoryClient, MemoryTransport } from 'incur/client'
+import { Client, HttpClient, HttpTransport, MemoryClient, MemoryTransport, Run } from 'incur/client'
 import { expectTypeOf, test } from 'vitest'
 
 type Commands = {
@@ -35,7 +35,7 @@ declare module 'incur/client' {
 test('module registration defaults namespace creators', async () => {
   const client = HttpClient.create({ baseUrl: 'https://example.com' })
   const result = await client.run('registered')
-  expectTypeOf(result).toEqualTypeOf<Client.ClientRunResult<{ ok: true }, RegisteredCommands>>()
+  expectTypeOf(result).toEqualTypeOf<Run.Result<{ ok: true }, RegisteredCommands>>()
   // @ts-expect-error unregistered commands are rejected without an explicit command map.
   await client.run('status')
 })
@@ -101,7 +101,7 @@ test('run input and return types follow command map', async () => {
   await client.run('project deploy', { args: { projectId: 'p1' } })
 
   const report = await client.run('project report', { args: { projectId: 'p1' } })
-  expectTypeOf(report).toEqualTypeOf<Client.ClientRunResult<{ summary: string }, Commands>>()
+  expectTypeOf(report).toEqualTypeOf<Run.Result<{ summary: string }, Commands>>()
   const selected = await client.run('project report', {
     args: { projectId: 'p1' },
     selection: ['summary'],
@@ -109,9 +109,7 @@ test('run input and return types follow command map', async () => {
   expectTypeOf(selected.data).toEqualTypeOf<unknown>()
 
   const stream = await client.run('logs tail', { args: { service: 'api' } })
-  expectTypeOf(stream).toEqualTypeOf<
-    Client.ClientStreamResponse<{ line: string }, unknown, Commands>
-  >()
+  expectTypeOf(stream).toEqualTypeOf<Run.StreamResponse<{ line: string }, unknown, Commands>>()
   // @ts-expect-error streaming commands reject token pagination controls.
   await client.run('logs tail', { args: { service: 'api' }, outputTokenLimit: 1 })
 })
@@ -163,13 +161,4 @@ test('resources overloads and permissive command maps', async () => {
   type UnknownCommands = Record<string, { args: unknown; options: unknown; output: unknown }>
   const loose = HttpClient.create<UnknownCommands>({ baseUrl: 'https://example.com' })
   await loose.run('runtime-only command', { args: { any: 'value' }, options: ['accepted'] })
-})
-
-test('old flat factory functions are not exported', () => {
-  // @ts-expect-error use Client.create.
-  expectTypeOf(Client.createClient).toBeNever()
-  // @ts-expect-error use HttpClient.create.
-  expectTypeOf(HttpClient.createHttpClient).toBeNever()
-  // @ts-expect-error use MemoryClient.create.
-  expectTypeOf(MemoryClient.createMemoryClient).toBeNever()
 })

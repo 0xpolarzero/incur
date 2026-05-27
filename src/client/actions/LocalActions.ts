@@ -1,6 +1,6 @@
 import { ClientError } from '../ClientError.js'
 import type * as Local from '../Local.js'
-import type { ActionClient } from '../types.js'
+import type { ActionClient } from './ActionClient.js'
 
 /** Runs memory-local `skills add`. */
 export function skillsAdd(client: ActionClient, options?: Local.SkillsAddOptions | undefined) {
@@ -36,7 +36,7 @@ export function actions(client: ActionClient) {
   }
 }
 
-function local(client: ActionClient): Local.Handler {
+function local(client: ActionClient): Local.Methods {
   const { local } = client.transport
   if (!local) throw new ClientError('Local actions require a memory client.')
   return local

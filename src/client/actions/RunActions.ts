@@ -1,3 +1,4 @@
+import type * as Client from '../Client.js'
 import { ClientError } from '../ClientError.js'
 import type {
   Envelope as RpcFullEnvelope,
@@ -8,21 +9,11 @@ import type {
   StreamRecord as RpcStreamRecord,
   StreamResponse as RpcStreamResponse,
 } from '../Rpc.js'
-import type {
-  ActionClient,
-  ClientCta,
-  ClientCtaBlock,
-  ClientMeta,
-  ClientOutput,
-  ClientRunResult,
-  ClientStreamFinal,
-  ClientStreamRecord,
-  ClientStreamResponse,
-  OutputOptions,
-} from '../types.js'
+import type * as Run from '../Run.js'
+import type { ActionClient } from './ActionClient.js'
 
 /** Runtime input accepted by the untyped run action wrapper. */
-export type Input = OutputOptions & { args?: unknown; options?: unknown }
+export type Input = Client.Defaults & { args?: unknown; options?: unknown }
 
 /** Executes a command through a client transport. */
 export async function run(
@@ -45,7 +36,11 @@ export function actions(client: ActionClient) {
   }
 }
 
-function toRequest(defaults: OutputOptions, command: string, input: Input | undefined): RpcRequest {
+function toRequest(
+  defaults: Client.Defaults,
+  command: string,
+  input: Input | undefined,
+): RpcRequest {
   const merged = {
     ...defaults,
     ...input,
@@ -73,7 +68,7 @@ function normalizeEnvelope(
   client: ActionClient,
   request: RpcRequest,
   response: RpcResponse,
-): ClientRunResult<unknown> {
+): Run.Result<unknown> {
   if (!response.ok) throw errorFromEnvelope(client, response)
   return {
     ok: true,
@@ -83,11 +78,7 @@ function normalizeEnvelope(
   }
 }
 
-function output(
-  client: ActionClient,
-  request: RpcRequest,
-  value: RpcOutput,
-): ClientOutput<unknown> {
+function output(client: ActionClient, request: RpcRequest, value: RpcOutput): Run.Output<unknown> {
   return normalizeOutput(value, value.nextOffset, (nextOffset) =>
     normalizeNext(client, {
       ...request,
@@ -99,8 +90,8 @@ function output(
 function normalizeOutput(
   value: RpcOutput,
   nextOffset?: number | undefined,
-  next?: ((nextOffset: number) => Promise<ClientRunResult<unknown>>) | undefined,
-): ClientOutput<unknown> {
+  next?: ((nextOffset: number) => Promise<Run.Result<unknown>>) | undefined,
+): Run.Output<unknown> {
   if (typeof value.text !== 'string') throw new ClientError('Malformed RPC output.')
   return {
     text: value.text,
@@ -115,7 +106,7 @@ function normalizeOutput(
 async function normalizeNext(
   client: ActionClient,
   request: RpcRequest,
-): Promise<ClientRunResult<unknown>> {
+): Promise<Run.Result<unknown>> {
   const response = await client.transport.request(request)
   if ('stream' in response) throw new ClientError('Expected non-streaming RPC response.')
   return normalizeEnvelope(client, request, response)
@@ -125,19 +116,19 @@ function normalizeStream(
   client: ActionClient,
   request: RpcRequest,
   response: RpcStreamResponse,
-): ClientStreamResponse<unknown> {
+): Run.StreamResponse<unknown> {
   let mode: 'chunks' | 'records' | 'final' | undefined
-  let terminal: ClientStreamFinal<unknown> | ClientError | undefined
-  let resolveFinal: ((value: ClientStreamFinal<unknown>) => void) | undefined
+  let terminal: Run.StreamFinal<unknown> | ClientError | undefined
+  let resolveFinal: ((value: Run.StreamFinal<unknown>) => void) | undefined
   let rejectFinal: ((error: ClientError) => void) | undefined
   const iterator = response.records()
-  const finalState = new Promise<ClientStreamFinal<unknown>>((resolve, reject) => {
+  const finalState = new Promise<Run.StreamFinal<unknown>>((resolve, reject) => {
     resolveFinal = resolve
     rejectFinal = reject
   })
   void finalState.catch(() => undefined)
 
-  async function nextRecord(): Promise<ClientStreamRecord<unknown>> {
+  async function nextRecord(): Promise<Run.StreamRecord<unknown>> {
     const { value, done } = await iterator.next()
     if (done) throw new ClientError('RPC stream ended before a terminal record.')
     const record = streamRecord(value)
@@ -225,7 +216,7 @@ function normalizeStream(
     }
   }
 
-  function streamRecord(record: RpcStreamRecord): ClientStreamRecord<unknown> {
+  function streamRecord(record: RpcStreamRecord): Run.StreamRecord<unknown> {
     if (record.type === 'chunk') return record
     if (record.type === 'done')
       return {
@@ -243,7 +234,7 @@ function normalizeStream(
     }
   }
 
-  function meta(value: RpcMeta): ClientMeta {
+  function meta(value: RpcMeta): Run.Meta {
     return normalizeMeta(client, value)
   }
 
@@ -266,7 +257,7 @@ function errorFromEnvelope(
   })
 }
 
-function errorFromRecord(record: Extract<ClientStreamRecord<unknown>, { type: 'error' }>) {
+function errorFromRecord(record: Extract<Run.StreamRecord<unknown>, { type: 'error' }>) {
   return new ClientError(record.error.message, {
     code: record.error.code,
     data: record,
@@ -277,7 +268,7 @@ function errorFromRecord(record: Extract<ClientStreamRecord<unknown>, { type: 'e
   })
 }
 
-function normalizeMeta(client: ActionClient | undefined, value: RpcMeta): ClientMeta {
+function normalizeMeta(client: ActionClient | undefined, value: RpcMeta): Run.Meta {
   return {
     command: value.command,
     duration: value.duration,
@@ -285,7 +276,7 @@ function normalizeMeta(client: ActionClient | undefined, value: RpcMeta): Client
   }
 }
 
-function ctaBlock(client: ActionClient | undefined, value: unknown): ClientCtaBlock<any> {
+function ctaBlock(client: ActionClient | undefined, value: unknown): Run.CtaBlock {
   const block = isRecord(value) ? value : {}
   const commands = Array.isArray(block.commands) ? block.commands : []
   return {
@@ -297,7 +288,7 @@ function ctaBlock(client: ActionClient | undefined, value: unknown): ClientCtaBl
   }
 }
 
-function cta(client: ActionClient | undefined, value: unknown): ClientCta<any> | undefined {
+function cta(client: ActionClient | undefined, value: unknown): Run.Cta | undefined {
   const raw = value
   if (typeof value === 'string') return runnableCta(client, { command: value }, raw)
   if (isRecord(value) && typeof value.command === 'string') return runnableCta(client, value, raw)
@@ -308,7 +299,7 @@ function runnableCta(
   client: ActionClient | undefined,
   value: Record<string, unknown>,
   raw: unknown,
-): ClientCta<any> {
+): Run.Cta {
   const command = value.command as string
   const args = isRecord(value.args) ? value.args : {}
   const options = isRecord(value.options) ? value.options : {}
@@ -319,13 +310,13 @@ function runnableCta(
     args,
     options,
     raw,
-    run(optionsOverride?: OutputOptions) {
+    run(optionsOverride?: Client.Defaults) {
       if (!client) throw new ClientError('CTA is not attached to a client.')
       return run(client, command, { args, options, ...optionsOverride }) as Promise<
-        ClientRunResult<unknown, any>
+        Run.Result<unknown>
       >
     },
-  } satisfies ClientCta<any>
+  } satisfies Run.Cta
   return result
 }
 
