@@ -134,6 +134,8 @@ export function createClientDiscover(ctx: RuntimeContext.RuntimeCliContext) {
 
       const full = parsed.resource === 'llmsFull'
       const format = parsed.format ?? 'md'
+      const data = manifest(scoped.commands, scoped.prefix, full)
+      if (format === 'json') return { contentType: 'application/json', data }
       if (format === 'md') {
         const groups = new Map<string, string>()
         const entries = skillCommands(scoped.commands, scoped.prefix, groups, scoped.rootCommand)
@@ -145,7 +147,7 @@ export function createClientDiscover(ctx: RuntimeContext.RuntimeCliContext) {
       }
       return {
         contentType: 'text/plain',
-        body: Formatter.format(manifest(scoped.commands, scoped.prefix, full), format),
+        body: Formatter.format(data, format),
       }
     },
   }

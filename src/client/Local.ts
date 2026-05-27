@@ -29,7 +29,10 @@ export type McpAddOptions = {
 export type SyncedSkills = SyncSkills.sync.Result
 
 /** Skills list result. */
-export type SkillsList = SyncSkills.list.Skill[]
+export type SkillsList = {
+  /** Listed skills. */
+  skills: SyncSkills.list.Skill[]
+}
 
 /** MCP registration result. */
 export type McpRegistration = SyncMcp.register.Result

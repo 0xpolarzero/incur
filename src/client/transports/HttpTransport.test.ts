@@ -298,6 +298,31 @@ describe('HttpTransport', () => {
         request: { resource: 'llmsFull', command: 'status', format: 'json' },
         url: 'https://example.com/_incur/llms-full?command=status&format=json',
         assert(response) {
+          expect(response).toMatchObject({
+            contentType: 'application/json',
+            data: {
+              version: 'incur.v1',
+              commands: [
+                {
+                  name: 'status',
+                  description: 'Show status',
+                  schema: {
+                    args: { properties: { id: { type: 'string' } }, required: ['id'] },
+                    options: {
+                      properties: { verbose: { default: false, type: 'boolean' } },
+                      required: ['verbose'],
+                    },
+                  },
+                },
+              ],
+            },
+          })
+        },
+      },
+      {
+        request: { resource: 'llmsFull', command: 'status', format: 'jsonl' },
+        url: 'https://example.com/_incur/llms-full?command=status&format=jsonl',
+        assert(response) {
           if (!('body' in response)) throw new Error('expected body')
           expect(response.contentType).toBe('text/plain')
           expect(JSON.parse(response.body)).toMatchObject({

@@ -32,13 +32,14 @@ export function createClientLocal(ctx: RuntimeContext.RuntimeCliContext) {
         },
         async list(options: Local.SkillsListOptions = {}) {
           try {
-            return await SyncSkills.list(ctx.name, ctx.commands, {
+            const skills = await SyncSkills.list(ctx.name, ctx.commands, {
               cwd: ctx.sync?.cwd,
               depth: options.depth ?? ctx.sync?.depth ?? 1,
               description: ctx.description,
               include: ctx.sync?.include,
               rootCommand: ctx.rootCommand,
             })
+            return { skills }
           } catch (error) {
             throw new LocalError('Failed to list local skills.', {
               cause: error instanceof Error ? error : new Error(String(error)),

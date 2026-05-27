@@ -141,6 +141,30 @@ describe('MemoryTransport', () => {
       {
         request: { resource: 'llmsFull', command: 'status', format: 'json' },
         assert(response) {
+          expect(response).toMatchObject({
+            contentType: 'application/json',
+            data: {
+              version: 'incur.v1',
+              commands: [
+                {
+                  name: 'status',
+                  description: 'Show status',
+                  schema: {
+                    args: { properties: { id: { type: 'string' } }, required: ['id'] },
+                    options: {
+                      properties: { verbose: { default: false, type: 'boolean' } },
+                      required: ['verbose'],
+                    },
+                  },
+                },
+              ],
+            },
+          })
+        },
+      },
+      {
+        request: { resource: 'llmsFull', command: 'status', format: 'jsonl' },
+        assert(response) {
           if (!('body' in response)) throw new Error('expected body')
           expect(response.contentType).toBe('text/plain')
           expect(JSON.parse(response.body)).toMatchObject({
@@ -330,8 +354,8 @@ describe('MemoryTransport', () => {
     expect(typeof transport.local.skills.add).toBe('function')
     expect(typeof transport.local.skills.list).toBe('function')
     expect(typeof transport.local.mcp.add).toBe('function')
-    await expect(transport.local.skills.list()).resolves.toEqual([
-      expect.objectContaining({ installed: false, name: 'app-status' }),
-    ])
+    await expect(transport.local.skills.list()).resolves.toEqual({
+      skills: [expect.objectContaining({ installed: false, name: 'app-status' })],
+    })
   })
 })
