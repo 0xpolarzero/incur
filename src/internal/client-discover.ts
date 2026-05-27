@@ -2,6 +2,7 @@ import { parse as yamlParse, stringify as yamlStringify } from 'yaml'
 import { z } from 'zod'
 
 import * as Cli from '../Cli.js'
+import type { CommandDefinition as CliCommandDefinition, CommandEntry } from '../Cli.js'
 import type * as ClientDiscover from '../client/Discover.js'
 import { BaseError } from '../Errors.js'
 import * as Formatter from '../Formatter.js'
@@ -10,6 +11,8 @@ import * as Mcp from '../Mcp.js'
 import * as Openapi from '../Openapi.js'
 import * as Skill from '../Skill.js'
 import * as CommandTree from './command-tree.js'
+
+type CommandDefinition = CliCommandDefinition<any, any, any, any, any, any>
 
 /** Discover failure with protocol code and HTTP status metadata. */
 export class DiscoverError extends BaseError {
@@ -198,18 +201,14 @@ function skills(ctx: CommandTree.RuntimeCliContext) {
   return { files: Skill.split(ctx.name, entries, 1, groups) }
 }
 
-function manifest(
-  commands: Map<string, CommandTree.CommandEntry>,
-  prefix: string[],
-  full: boolean,
-) {
+function manifest(commands: Map<string, CommandEntry>, prefix: string[], full: boolean) {
   return {
     version: 'incur.v1',
     commands: collect(commands, prefix, full).sort((a, b) => a.name.localeCompare(b.name)),
   }
 }
 
-function collect(commands: Map<string, CommandTree.CommandEntry>, prefix: string[], full: boolean) {
+function collect(commands: Map<string, CommandEntry>, prefix: string[], full: boolean) {
   const result: {
     name: string
     description?: string | undefined
@@ -239,10 +238,10 @@ function collect(commands: Map<string, CommandTree.CommandEntry>, prefix: string
 }
 
 function skillCommands(
-  commands: Map<string, CommandTree.CommandEntry>,
+  commands: Map<string, CommandEntry>,
   prefix: string[],
   groups: Map<string, string>,
-  rootCommand?: CommandTree.CommandDefinition | undefined,
+  rootCommand?: CommandDefinition | undefined,
 ): Skill.CommandInfo[] {
   const result: Skill.CommandInfo[] = []
   if (rootCommand) result.push(toSkillCommand(rootCommand, undefined))
@@ -259,7 +258,7 @@ function skillCommands(
   return result.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
 }
 
-function toSkillCommand(command: CommandTree.CommandDefinition, name: string | undefined) {
+function toSkillCommand(command: CommandDefinition, name: string | undefined) {
   return {
     ...(name ? { name } : undefined),
     ...(command.description ? { description: command.description } : undefined),

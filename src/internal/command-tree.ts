@@ -1,6 +1,13 @@
 import type { z } from 'zod'
 
 import * as Cli from '../Cli.js'
+import type {
+  CommandDefinition,
+  CommandEntry,
+  InternalAlias,
+  InternalFetchGateway,
+  InternalGroup,
+} from '../Cli.js'
 import type { Handler as MiddlewareHandler } from '../middleware.js'
 import * as Schema from '../Schema.js'
 
@@ -19,7 +26,7 @@ export type RuntimeCliContext = {
   /** CLI name. */
   name: string
   /** Root command definition, when the CLI itself is callable. */
-  rootCommand?: CommandDefinition | undefined
+  rootCommand?: CommandDefinition<any, any, any, any, any, any> | undefined
   /** Local skill sync defaults. */
   sync?:
     | {
@@ -35,52 +42,9 @@ export type RuntimeCliContext = {
   version?: string | undefined
 }
 
-/** Internal command entry shape shared by CLI consumers. */
-export type CommandEntry = CommandDefinition | CommandGroup | FetchGateway | CommandAlias
-
-/** Internal command definition shape. */
-export type CommandDefinition = {
-  alias?: Record<string, string> | undefined
-  args?: z.ZodObject<any> | undefined
-  description?: string | undefined
-  env?: z.ZodObject<any> | undefined
-  examples?: unknown[] | undefined
-  hint?: string | undefined
-  middleware?: MiddlewareHandler[] | undefined
-  options?: z.ZodObject<any> | undefined
-  output?: z.ZodType | undefined
-  outputPolicy?: Cli.OutputPolicy | undefined
-  run: Function
-  usage?: unknown[] | undefined
-}
-
-/** Internal command group shape. */
-export type CommandGroup = {
-  _group: true
-  commands: Map<string, CommandEntry>
-  description?: string | undefined
-  middlewares?: MiddlewareHandler[] | undefined
-  outputPolicy?: Cli.OutputPolicy | undefined
-}
-
-/** Internal raw fetch gateway shape. */
-export type FetchGateway = {
-  _fetch: true
-  basePath?: string | undefined
-  description?: string | undefined
-  fetch: (req: Request) => Response | Promise<Response>
-  outputPolicy?: Cli.OutputPolicy | undefined
-}
-
-/** Internal alias entry shape. */
-export type CommandAlias = {
-  _alias: true
-  target: string
-}
-
 /** Resolved callable command. */
 export type ResolvedCommand = {
-  command: CommandDefinition
+  command: CommandDefinition<any, any, any, any, any, any>
   id: string
   middlewares: MiddlewareHandler[]
 }
@@ -94,7 +58,7 @@ export type ResolvedGroup = {
 
 /** Resolved raw fetch gateway. */
 export type ResolvedFetchGateway = {
-  gateway: FetchGateway
+  gateway: InternalFetchGateway
   id: string
   middlewares: MiddlewareHandler[]
 }
@@ -112,7 +76,16 @@ export function fromCli(cli: Cli.Cli<any, any, any>): RuntimeCliContext {
     ...(Cli.toMcpOptions.get(cli) ? { mcp: Cli.toMcpOptions.get(cli) } : undefined),
     name: cli.name,
     ...(Cli.toRootDefinition.get(cli as unknown as Cli.Root)
-      ? { rootCommand: Cli.toRootDefinition.get(cli as unknown as Cli.Root) as CommandDefinition }
+      ? {
+          rootCommand: Cli.toRootDefinition.get(cli as unknown as Cli.Root) as CommandDefinition<
+            any,
+            any,
+            any,
+            any,
+            any,
+            any
+          >,
+        }
       : undefined),
     ...(Cli.toSyncOptions.get(cli) ? { sync: Cli.toSyncOptions.get(cli) } : undefined),
     ...(cli.vars ? { vars: cli.vars } : undefined),
@@ -121,27 +94,26 @@ export function fromCli(cli: Cli.Cli<any, any, any>): RuntimeCliContext {
 }
 
 /** Returns true when an entry is an alias. */
-export function isAlias(entry: CommandEntry): entry is CommandAlias {
-  return '_alias' in entry
+export function isAlias(entry: CommandEntry): entry is InternalAlias {
+  return Cli.isAlias(entry)
 }
 
 /** Returns true when an entry is a command group. */
-export function isGroup(entry: CommandEntry): entry is CommandGroup {
-  return '_group' in entry
+export function isGroup(entry: CommandEntry): entry is InternalGroup {
+  return Cli.isGroup(entry)
 }
 
 /** Returns true when an entry is a raw fetch gateway. */
-export function isFetchGateway(entry: CommandEntry): entry is FetchGateway {
-  return '_fetch' in entry
+export function isFetchGateway(entry: CommandEntry): entry is InternalFetchGateway {
+  return Cli.isFetchGateway(entry)
 }
 
 /** Resolves an alias entry within its owning command map. */
 export function resolveAlias(
   commands: Map<string, CommandEntry>,
   entry: CommandEntry,
-): Exclude<CommandEntry, CommandAlias> {
-  if (!isAlias(entry)) return entry
-  return commands.get(entry.target)! as Exclude<CommandEntry, CommandAlias>
+): Exclude<CommandEntry, InternalAlias> {
+  return Cli.resolveAlias(commands, entry) as Exclude<CommandEntry, InternalAlias>
 }
 
 /** Resolves a canonical command ID without accepting aliases. */
@@ -216,7 +188,7 @@ function collect(
 }
 
 /** Builds the structured input schema used by discovery payloads. */
-export function buildInputSchema(command: CommandDefinition):
+export function buildInputSchema(command: CommandDefinition<any, any, any, any, any, any>):
   | {
       args?: Record<string, unknown> | undefined
       env?: Record<string, unknown> | undefined

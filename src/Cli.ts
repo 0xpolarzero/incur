@@ -1678,7 +1678,7 @@ async function fetchImpl(
 
   if (segments[0] === '_incur') {
     const ctx: CommandTree.RuntimeCliContext = {
-      commands: commands as Map<string, CommandTree.CommandEntry>,
+      commands,
       ...(options.description ? { description: options.description } : undefined),
       ...(options.envSchema ? { env: options.envSchema } : undefined),
       middlewares: options.middlewares ?? [],
@@ -2595,7 +2595,7 @@ export type CommandsMap = Record<
 >
 
 /** @internal Entry stored in a command map — either a leaf definition, a group, or a fetch gateway. */
-type CommandEntry =
+export type CommandEntry =
   | CommandDefinition<any, any, any>
   | InternalGroup
   | InternalFetchGateway
@@ -2611,7 +2611,7 @@ export type FetchHandler = Fetch.Handler
 export type FetchSource = Fetch.Source
 
 /** @internal A command group's internal storage. */
-type InternalGroup = {
+export type InternalGroup = {
   _group: true
   description?: string | undefined
   middlewares?: MiddlewareHandler[] | undefined
@@ -2620,7 +2620,7 @@ type InternalGroup = {
 }
 
 /** @internal A fetch gateway entry. */
-type InternalFetchGateway = {
+export type InternalFetchGateway = {
   _fetch: true
   basePath?: string | undefined
   description?: string | undefined
@@ -2646,29 +2646,29 @@ function fetchBaseUrl(source: FetchSource) {
 }
 
 /** @internal Type guard for command groups. */
-function isGroup(entry: CommandEntry): entry is InternalGroup {
+export function isGroup(entry: CommandEntry): entry is InternalGroup {
   return '_group' in entry
 }
 
 /** @internal Type guard for fetch gateways. */
-function isFetchGateway(entry: CommandEntry): entry is InternalFetchGateway {
+export function isFetchGateway(entry: CommandEntry): entry is InternalFetchGateway {
   return '_fetch' in entry
 }
 
 /** @internal An alias entry that points to another command by name. */
-type InternalAlias = {
+export type InternalAlias = {
   _alias: true
   /** The canonical command name this alias resolves to. */
   target: string
 }
 
 /** @internal Type guard for alias entries. */
-function isAlias(entry: CommandEntry): entry is InternalAlias {
+export function isAlias(entry: CommandEntry): entry is InternalAlias {
   return '_alias' in entry
 }
 
 /** @internal Follows an alias entry to its canonical target. Returns the entry unchanged if not an alias. */
-function resolveAlias(
+export function resolveAlias(
   commands: Map<string, CommandEntry>,
   entry: CommandEntry,
 ): Exclude<CommandEntry, InternalAlias> {
@@ -3205,7 +3205,7 @@ function buildInputSchema(
 }
 
 /** @internal A usage example for a command, typed against its args and options schemas. */
-type Example<
+export type Example<
   args extends z.ZodObject<any> | undefined,
   options extends z.ZodObject<any> | undefined,
 > = {
@@ -3218,7 +3218,7 @@ type Example<
 }
 
 /** @internal A usage pattern shown in help output. */
-type Usage<
+export type Usage<
   args extends z.ZodObject<any> | undefined,
   options extends z.ZodObject<any> | undefined,
 > = {
@@ -3294,7 +3294,7 @@ declare namespace Output {
 }
 
 /** @internal Defines a command's schema, handler, and metadata. */
-type CommandDefinition<
+export type CommandDefinition<
   args extends z.ZodObject<any> | undefined = undefined,
   env extends z.ZodObject<any> | undefined = undefined,
   options extends z.ZodObject<any> | undefined = undefined,

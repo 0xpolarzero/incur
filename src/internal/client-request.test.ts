@@ -75,34 +75,30 @@ function createFixture() {
   return { cli, order, ctx: CommandTree.fromCli(cli) }
 }
 
-function request(
-  ctx: CommandTree.RuntimeCliContext,
-  body: unknown,
-  options: createClientRequest.Options = {},
-) {
-  return createClientRequest(ctx, options).request(body)
-}
-
 describe('createClientRequest', () => {
   test('executes root, mounted root, and mounted router commands by canonical ID', async () => {
     const { ctx, order } = createFixture()
 
     await expect(
-      request(ctx, { command: ' root ', args: {}, options: {} }, { env: { API_KEY: 'k' } }),
+      createClientRequest(ctx, { env: { API_KEY: 'k' } }).request({
+        command: ' root ',
+        args: {},
+        options: {},
+      }),
     ).resolves.toMatchObject({ ok: true, data: { root: true }, meta: { command: 'root' } })
     await expect(
-      request(
-        ctx,
-        { command: 'child', args: { id: 'c1' }, options: { loud: true } },
-        { env: { API_KEY: 'k', TOKEN: 't' } },
-      ),
+      createClientRequest(ctx, { env: { API_KEY: 'k', TOKEN: 't' } }).request({
+        command: 'child',
+        args: { id: 'c1' },
+        options: { loud: true },
+      }),
     ).resolves.toMatchObject({ ok: true, data: { id: 'c1', loud: true } })
     await expect(
-      request(
-        ctx,
-        { command: 'project list', args: { projectId: 'p1' }, options: { limit: 1 } },
-        { env: { API_KEY: 'k' } },
-      ),
+      createClientRequest(ctx, { env: { API_KEY: 'k' } }).request({
+        command: 'project list',
+        args: { projectId: 'p1' },
+        options: { limit: 1 },
+      }),
     ).resolves.toMatchObject({
       ok: true,
       data: { items: [{ id: 'a' }, { id: 'b' }] },
@@ -125,23 +121,24 @@ describe('createClientRequest', () => {
 
   test('rejects invalid RPC shape, unknown commands, groups, aliases, and raw fetch gateways', async () => {
     const { ctx } = createFixture()
-    await expect(request(ctx, { command: '' })).resolves.toMatchObject({
+    const { request } = createClientRequest(ctx)
+    await expect(request({ command: '' })).resolves.toMatchObject({
       ok: false,
       error: { code: 'INVALID_RPC_REQUEST' },
     })
-    await expect(request(ctx, { command: 'missing' })).resolves.toMatchObject({
+    await expect(request({ command: 'missing' })).resolves.toMatchObject({
       ok: false,
       error: { code: 'COMMAND_NOT_FOUND' },
     })
-    await expect(request(ctx, { command: 'project' })).resolves.toMatchObject({
+    await expect(request({ command: 'project' })).resolves.toMatchObject({
       ok: false,
       error: { code: 'COMMAND_GROUP' },
     })
-    await expect(request(ctx, { command: 'alias' })).resolves.toMatchObject({
+    await expect(request({ command: 'alias' })).resolves.toMatchObject({
       ok: false,
       error: { code: 'COMMAND_NOT_FOUND' },
     })
-    await expect(request(ctx, { command: 'raw' })).resolves.toMatchObject({
+    await expect(request({ command: 'raw' })).resolves.toMatchObject({
       ok: false,
       error: { code: 'FETCH_GATEWAY' },
     })
@@ -150,42 +147,46 @@ describe('createClientRequest', () => {
   test('validates structured args, options, CLI env, and command env independently', async () => {
     const { ctx } = createFixture()
     await expect(
-      request(
-        ctx,
-        { command: 'project list', args: {}, options: { limit: 1 } },
-        { env: { API_KEY: 'k' } },
-      ),
+      createClientRequest(ctx, { env: { API_KEY: 'k' } }).request({
+        command: 'project list',
+        args: {},
+        options: { limit: 1 },
+      }),
     ).resolves.toMatchObject({ ok: false, error: { code: 'VALIDATION_ERROR' } })
     await expect(
-      request(
-        ctx,
-        { command: 'project list', args: { projectId: 'p' }, options: { limit: 'bad' } },
-        { env: { API_KEY: 'k' } },
-      ),
+      createClientRequest(ctx, { env: { API_KEY: 'k' } }).request({
+        command: 'project list',
+        args: { projectId: 'p' },
+        options: { limit: 'bad' },
+      }),
     ).resolves.toMatchObject({ ok: false, error: { code: 'VALIDATION_ERROR' } })
     await expect(
-      request(ctx, { command: 'project list', args: { projectId: 'p' }, options: {} }),
+      createClientRequest(ctx).request({
+        command: 'project list',
+        args: { projectId: 'p' },
+        options: {},
+      }),
     ).resolves.toMatchObject({ ok: false, error: { code: 'VALIDATION_ERROR' } })
     await expect(
-      request(ctx, { command: 'child', args: { id: 'c' }, options: {} }, { env: { API_KEY: 'k' } }),
+      createClientRequest(ctx, { env: { API_KEY: 'k' } }).request({
+        command: 'child',
+        args: { id: 'c' },
+        options: {},
+      }),
     ).resolves.toMatchObject({ ok: false, error: { code: 'VALIDATION_ERROR' } })
   })
 
   test('applies selection, formatting, token metadata, and CTA metadata', async () => {
     const { ctx } = createFixture()
-    const response = await request(
-      ctx,
-      {
-        command: 'project list',
-        args: { projectId: 'p1' },
-        options: {},
-        outputFormat: 'json',
-        outputTokenCount: true,
-        outputTokenLimit: 4,
-        selection: ['items[0,1]'],
-      },
-      { env: { API_KEY: 'k' } },
-    )
+    const response = await createClientRequest(ctx, { env: { API_KEY: 'k' } }).request({
+      command: 'project list',
+      args: { projectId: 'p1' },
+      options: {},
+      outputFormat: 'json',
+      outputTokenCount: true,
+      outputTokenLimit: 4,
+      selection: ['items[0,1]'],
+    })
     expect(response).toMatchObject({
       ok: true,
       data: { items: [{ id: 'a' }] },
@@ -196,22 +197,25 @@ describe('createClientRequest', () => {
 
   test('rejects empty selections and omits token count unless requested', async () => {
     const { ctx } = createFixture()
-    await expect(request(ctx, { command: 'project list', selection: [] })).resolves.toMatchObject({
+    await expect(
+      createClientRequest(ctx).request({ command: 'project list', selection: [] }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: 'INVALID_RPC_REQUEST' },
     })
     await expect(
-      request(
-        ctx,
-        { command: 'project list', args: { projectId: 'p1' }, options: {} },
-        { env: { API_KEY: 'k' } },
-      ),
+      createClientRequest(ctx, { env: { API_KEY: 'k' } }).request({
+        command: 'project list',
+        args: { projectId: 'p1' },
+        options: {},
+      }),
     ).resolves.not.toMatchObject({ meta: { outputTokenCount: expect.any(Number) } })
   })
 
   test('streams chunks, terminal metadata, terminal errors, and cancellation', async () => {
     const { ctx, order } = createFixture()
-    const response = await request(ctx, { command: 'project stream' }, { env: { API_KEY: 'k' } })
+    const { request } = createClientRequest(ctx, { env: { API_KEY: 'k' } })
+    const response = await request({ command: 'project stream' })
     if (!('stream' in response)) throw new Error('expected stream')
     const records: unknown[] = []
     for await (const record of response.records()) records.push(record)
@@ -221,7 +225,7 @@ describe('createClientRequest', () => {
       { type: 'done', ok: true, meta: { command: 'project stream', cta: expect.any(Object) } },
     ])
 
-    const failed = await request(ctx, { command: 'project fail-stream' }, { env: { API_KEY: 'k' } })
+    const failed = await request({ command: 'project fail-stream' })
     if (!('stream' in failed)) throw new Error('expected stream')
     const failedRecords: unknown[] = []
     for await (const record of failed.records()) failedRecords.push(record)
@@ -232,7 +236,7 @@ describe('createClientRequest', () => {
       meta: { command: 'project fail-stream' },
     })
 
-    const cancelled = await request(ctx, { command: 'project stream' }, { env: { API_KEY: 'k' } })
+    const cancelled = await request({ command: 'project stream' })
     if (!('stream' in cancelled)) throw new Error('expected stream')
     const iterator = cancelled.records()
     await iterator.next()
