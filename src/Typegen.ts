@@ -15,14 +15,29 @@ export async function generate(input: string, output: string): Promise<void> {
 export function fromCli(cli: Cli.Cli): string {
   const entries = RuntimeContext.collectStructuredCommands(RuntimeContext.fromCli(cli))
 
-  const lines: string[] = ["declare module 'incur' {", '  interface Register {', '    commands: {']
+  const lines: string[] = ['export type Commands = {']
 
   for (const { id, command } of entries)
     lines.push(
-      `      ${propertyKey(id)}: { args: ${objectSchemaToType(command.args)}; options: ${objectSchemaToType(command.options)}${command.output ? `; output: ${schemaToType(command.output)}` : ''}${isStream(command) ? '; stream: true' : ''} }`,
+      `  ${propertyKey(id)}: { args: ${objectSchemaToType(command.args)}; options: ${objectSchemaToType(command.options)}${command.output ? `; output: ${schemaToType(command.output)}` : ''}${isStream(command) ? '; stream: true' : ''} }`,
     )
 
-  lines.push('    }', '  }', '}', '')
+  lines.push(
+    '}',
+    '',
+    "declare module 'incur' {",
+    '  interface Register {',
+    '    commands: Commands',
+    '  }',
+    '}',
+    '',
+    "declare module 'incur/client' {",
+    '  interface Register {',
+    '    commands: Commands',
+    '  }',
+    '}',
+    '',
+  )
   return lines.join('\n')
 }
 

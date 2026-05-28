@@ -13,12 +13,20 @@ describe('fromCli', () => {
       })
 
     expect(Typegen.fromCli(cli)).toMatchInlineSnapshot(`
-      "declare module 'incur' {
+      "export type Commands = {
+        get: { args: { id: number }; options: {} }
+        list: { args: {}; options: { limit: number } }
+      }
+
+      declare module 'incur' {
         interface Register {
-          commands: {
-            get: { args: { id: number }; options: {} }
-            list: { args: {}; options: { limit: number } }
-          }
+          commands: Commands
+        }
+      }
+
+      declare module 'incur/client' {
+        interface Register {
+          commands: Commands
         }
       }
       "
@@ -29,11 +37,19 @@ describe('fromCli', () => {
     const cli = Cli.create('test').command('ping', { run: () => ({}) })
 
     expect(Typegen.fromCli(cli)).toMatchInlineSnapshot(`
-      "declare module 'incur' {
+      "export type Commands = {
+        ping: { args: {}; options: {} }
+      }
+
+      declare module 'incur' {
         interface Register {
-          commands: {
-            ping: { args: {}; options: {} }
-          }
+          commands: Commands
+        }
+      }
+
+      declare module 'incur/client' {
+        interface Register {
+          commands: Commands
         }
       }
       "
@@ -54,12 +70,20 @@ describe('fromCli', () => {
     cli.command(pr)
 
     expect(Typegen.fromCli(cli)).toMatchInlineSnapshot(`
-      "declare module 'incur' {
+      "export type Commands = {
+        "pr create": { args: { title: string }; options: {} }
+        "pr list": { args: {}; options: { state: string } }
+      }
+
+      declare module 'incur' {
         interface Register {
-          commands: {
-            "pr create": { args: { title: string }; options: {} }
-            "pr list": { args: {}; options: { state: string } }
-          }
+          commands: Commands
+        }
+      }
+
+      declare module 'incur/client' {
+        interface Register {
+          commands: Commands
         }
       }
       "
@@ -77,11 +101,19 @@ describe('fromCli', () => {
     cli.command(pr)
 
     expect(Typegen.fromCli(cli)).toMatchInlineSnapshot(`
-      "declare module 'incur' {
+      "export type Commands = {
+        "pr review approve": { args: { id: number }; options: {} }
+      }
+
+      declare module 'incur' {
         interface Register {
-          commands: {
-            "pr review approve": { args: { id: number }; options: {} }
-          }
+          commands: Commands
+        }
+      }
+
+      declare module 'incur/client' {
+        interface Register {
+          commands: Commands
         }
       }
       "
@@ -157,7 +189,7 @@ describe('fromCli', () => {
       .command('middle', { run: () => ({}) })
 
     const output = Typegen.fromCli(cli)
-    const commandOrder = [...output.matchAll(/^ {6}(\w+):/gm)].map((m) => m[1])
+    const commandOrder = [...output.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1])
     expect(commandOrder).toEqual(['alpha', 'middle', 'zebra'])
   })
 
@@ -223,12 +255,20 @@ describe('fromCli', () => {
     cli.command(pr)
 
     expect(Typegen.fromCli(cli)).toMatchInlineSnapshot(`
-      "declare module 'incur' {
+      "export type Commands = {
+        ping: { args: {}; options: {} }
+        "pr list": { args: {}; options: {} }
+      }
+
+      declare module 'incur' {
         interface Register {
-          commands: {
-            ping: { args: {}; options: {} }
-            "pr list": { args: {}; options: {} }
-          }
+          commands: Commands
+        }
+      }
+
+      declare module 'incur/client' {
+        interface Register {
+          commands: Commands
         }
       }
       "
@@ -245,6 +285,7 @@ describe('fromCli', () => {
     const output = Typegen.fromCli(cli)
     expect(output).toContain('status: { args: {}; options: {} }')
     expect(output).not.toContain("'raw'")
+    expect(output).toContain("declare module 'incur/client'")
   })
 
   test('escapes command and property keys', () => {
