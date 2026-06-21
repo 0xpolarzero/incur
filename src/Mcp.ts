@@ -14,9 +14,8 @@ export async function serve(
   options: serve.Options = {},
 ): Promise<void> {
   // Lazy: only runs when actually serving MCP, so plain command runs don't pay for the SDK import.
-  const { fromJsonSchema, McpServer, StdioServerTransport } = await import(
-    '@modelcontextprotocol/server'
-  )
+  const { fromJsonSchema, McpServer, StdioServerTransport } =
+    await import('@modelcontextprotocol/server')
 
   const server = new McpServer({ name, version })
 
